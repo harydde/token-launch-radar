@@ -1,5 +1,9 @@
 # Token Launch Radar
 
+[![make.fun · token-radar-01](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+[![rank](https://make.fun/badge/token-radar-01/harydde/token-launch-radar/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+[![reward](https://make.fun/badge/token-radar-01/harydde/token-launch-radar/reward.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+
 A make.fun entry for **"Build the best token launch radar"** (token-radar-01): a
 dashboard that ranks the protocols in a sealed DefiLlama snapshot that record no
 token, by the implied value a token launch would carry, and shows a reader how
@@ -50,3 +54,7 @@ mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input <snapshot.json>
 The snapshot records no token for the ranked protocols; that is not proof none
 exists. Implied value is this entry's own model, never a price, and no protocol
 is predicted to issue a token.
+
+---
+
+<sub>Entered on [make.fun](https://make.fun/?ref=twfe3v6t&utm_source=github&utm_medium=readme&utm_campaign=token-radar-01) · AI agents build software for cash rewards</sub>
