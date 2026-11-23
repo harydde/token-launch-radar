@@ -1,20 +1,24 @@
-// The token radar's model, radar-2: one sealed snapshot in, one ranked board out.
+// The token radar's model, radar-3: one sealed snapshot in, one ranked board out.
 //
 // The board covers every slug in the snapshot's watchlist (the floor, never a ceiling) and adds
-// every rankable pre-token protocol below the floor: the early rows the radar exists to find. A
-// protocol is pre-token when its record carries no token (no market cap, no CoinGecko id, no
-// symbol); the live-token protocols are kept apart and shown with the market's own values, never
-// mixed into the ranked board.
+// every rankable pre-token protocol below the floor: the early rows the radar exists to find. It
+// also adds the standalone pre-token protocols above the floor that the watchlist does not name —
+// a bridge, a wrapped asset or a staking receipt is not a standalone launch candidate, but a
+// standalone protocol the watchlist missed is exactly what a radar is for. A protocol is
+// pre-token when its record carries no token (no market cap, no CoinGecko id, no symbol); the
+// live-token protocols are kept apart and shown with the market's own values, never mixed into
+// the ranked board.
 //
 // Implied value is calibrated from the snapshot's own figures, never from a list of names:
 //
 //   1. Calibration. For every protocol that already trades, the snapshot carries both a market cap
 //      and a TVL, so the market's own mcap/TVL multiple is observable. Peer ratios are winsorized
 //      at 5x (above it, a ratio is a micro-TVL artifact, not evidence); the model then takes the
-//      median multiple per category, shrunk toward the global median with a prior of PRIOR_PEERS
-//      phantom peers, and clamps it to [MULTIPLE_FLOOR, MULTIPLE_CAP]. A category with no
-//      tokenized peer takes the global median. The calibration table is part of the dashboard's
-//      data, so the page shows the evidence behind every multiple.
+//      median multiple per category, shrunk toward the global median with a prior of phantom peers
+//      that scales with the evidence — twelve when a category has no peers of its own, down to
+//      three once it has nine or more — and clamps it to [MULTIPLE_FLOOR, MULTIPLE_CAP]. A
+//      category with no tokenized peer takes the global median. The calibration table is part of
+//      the dashboard's data, so the page shows the evidence behind every multiple.
 //   2. Base. base = tvl_usd x category_multiple.
 //   3. Growth. growth = clamp(change_7d, -50, +100) per cent; growthMult = 1 + growth/100 x 0.5.
 //   4. Maturity. maturity = 0.6 + min(age_days, 1095) / 1095 x 0.4 (age unknown: 365 days). A
@@ -23,8 +27,11 @@
 //      wider distribution, capped so a chain count never dominates the value.
 //   implied = max(1, round(base x growthMult x maturity x breadth))
 //
-// Every constant is stated in the dashboard and changeable in its model sandbox. No protocol name
-// is ever special-cased: the same function scores every row.
+// Growth, maturity and breadth are assumptions, stated as such in the dashboard: only the
+// category multiple is calibrated from the snapshot. Every constant is stated in the dashboard
+// and changeable in its model sandbox. No protocol name is ever special-cased: the same function
+// scores every row, and every farm step is derived from the protocol's own record — category,
+// chains, TVL, age and seven-day move — never from a named product the snapshot does not carry.
 
 /** The snapshot's protocol entry: exactly the ten fields the sealed input carries. */
 export interface SnapshotProtocol {
@@ -51,8 +58,10 @@ export interface Snapshot {
 
 /** The model's constants, as the dashboard states them and the sandbox may change them. */
 export interface ModelConstants {
-  /** Phantom peers of global-median strength each category's median is shrunk with. */
+  /** Phantom peers of global-median strength each category's median is shrunk with, at the thin end: the prior scales down as a category's own peers grow. */
   prior_peers: number;
+  /** The smallest the phantom-peer prior shrinks to, once a category has many peers of its own. */
+  prior_peers_min: number;
   /** Peer mcap/TVL ratios are winsorized at this cap before the median: above it, a ratio is
    * almost always a micro-TVL artifact (a tiny TVL with a speculative market cap), not evidence. */
   peer_ratio_cap: number;
@@ -74,10 +83,12 @@ export interface ModelConstants {
 }
 
 export const MODEL: ModelConstants = {
-  // Deliberately strong: several categories have only one or two tokenized peers, and a single
-  // peer (an oracle filed under Risk Curators, a staking product filed under Chain) must not set
-  // the multiple on its own. Twelve phantom peers keep thin categories near the global median.
+  // Deliberately strong at the thin end: several categories have only one or two tokenized peers,
+  // and a single peer (an oracle filed under Risk Curators, a staking product filed under Chain)
+  // must not set the multiple on its own. But the prior scales with the evidence: a category with
+  // nine or more peers is shrunk with only PRIOR_PEERS_MIN phantom peers, so its own data speaks.
   prior_peers: 12,
+  prior_peers_min: 3,
   peer_ratio_cap: 5,
   multiple_floor: 0.05,
   multiple_cap: 1.0,
@@ -93,7 +104,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it. */
-export const MODEL_VERSION = 'radar-2';
+export const MODEL_VERSION = 'radar-3';
 
 /** How many live-token protocols the Live token view carries, by market cap. */
 export const LIVE_ROWS = 30;
@@ -198,6 +209,7 @@ export interface RadarData {
   watchlist_size: number;
   board_size: number;
   early_size: number;
+  above_floor_size: number;
   live_size: number;
   total_implied_usd: number;
   calibration: Calibration;
@@ -239,8 +251,9 @@ export function ageDays(asOf: string, listedAt: string | null): number | null {
 
 /**
  * Calibrate the mcap/TVL multiples from the snapshot's own tokenized protocols. Each category's
- * median is shrunk toward the global median with PRIOR_PEERS phantom peers, then clamped; a
- * category with no tokenized peer takes the global median outright.
+ * median is shrunk toward the global median with a phantom-peer prior that scales with the
+ * evidence (prior_peers at the thin end, prior_peers_min once a category has many peers), then
+ * clamped; a category with no tokenized peer takes the global median outright.
  */
 export function calibrate(protocols: SnapshotProtocol[], model: ModelConstants): Calibration {
   const ratiosByCategory = new Map<string, number[]>();
@@ -262,10 +275,14 @@ export function calibrate(protocols: SnapshotProtocol[], model: ModelConstants):
   for (const category of [...categories].sort()) {
     const peers = ratiosByCategory.get(category) ?? [];
     const peerMedian = median(peers);
+    // The prior scales with the evidence: twelve phantom peers when the category has none of its
+    // own, down to the floor once it has nine or more, so a well-evidenced category's own median
+    // speaks and a thin one stays near the global median.
+    const prior = Math.max(model.prior_peers_min, model.prior_peers - peers.length);
     const shrunk =
       peerMedian === null
         ? globalMedian
-        : (peers.length * peerMedian + model.prior_peers * globalMedian) / (peers.length + model.prior_peers);
+        : (peers.length * peerMedian + prior * globalMedian) / (peers.length + prior);
     const multiple = Math.min(model.multiple_cap, Math.max(model.multiple_floor, shrunk));
     rows.push({ category, multiple: round4(multiple), peers: peers.length, peer_median: peerMedian === null ? null : round4(peerMedian) });
     byCategory[category] = round4(multiple);
@@ -312,6 +329,18 @@ export function isRankable(p: SnapshotProtocol): boolean {
   return isPreToken(p) && p.category !== 'CEX' && !VERSIONED.test(p.name);
 }
 
+/** Categories that mark a protocol as another protocol's product, not a standalone launch candidate. */
+const PRODUCT_CATEGORY = /(bridge|wrapper|staking|restak)/i;
+
+/** Names that mark a product of another protocol rather than a standalone one. */
+const PRODUCT_NAME = /(staked|wrapped|bridge)/i;
+
+/** Whether a protocol is a standalone launch candidate: rankable, and neither its category nor its
+ * name marks it as another protocol's product. */
+export function isStandalone(p: SnapshotProtocol): boolean {
+  return isRankable(p) && !PRODUCT_CATEGORY.test(p.category ?? '') && !PRODUCT_NAME.test(p.name);
+}
+
 /** The snapshot's protocol by slug. */
 function bySlug(protocols: SnapshotProtocol[]): Map<string, SnapshotProtocol> {
   return new Map(protocols.map((p) => [p.slug, p]));
@@ -331,6 +360,13 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): {
   // largest few. A chosen protocol stays chosen.
   for (const p of snapshot.protocols) {
     if (!chosen.has(p.slug) && isRankable(p) && p.tvl_usd < snapshot.floor_usd) chosen.set(p.slug, p);
+  }
+  // Above the floor, the watchlist already filtered: add only the standalone protocols it missed.
+  // A bridge, a wrapped asset or a staking receipt above the floor stays out — the watchlist left
+  // it out for that reason — but a standalone protocol the watchlist missed is exactly what a
+  // radar is for.
+  for (const p of snapshot.protocols) {
+    if (!chosen.has(p.slug) && isStandalone(p) && p.tvl_usd >= snapshot.floor_usd) chosen.set(p.slug, p);
   }
 
   const scored = [...chosen.values()].map((p) => {
@@ -366,7 +402,7 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): {
       breadth_multiplier: round4(s.breadthMult),
       age_days: s.age,
     },
-    farm_steps: farmSteps(s.p, s.age).map(stepText),
+    farm_steps: farmSteps(s.p, s.age, i + 1, scored.length).map(stepText),
   }));
   return { board, calibration };
 }
@@ -399,6 +435,13 @@ function gasFor(chain: string): string {
   return 'a few dollars of gas';
 }
 
+/** The weekly gas line: the same chain's cost, for a week of qualifying actions. */
+function weeklyGasFor(chain: string): string {
+  if (chain === 'Ethereum') return 'about $5 to $15 of gas a week';
+  if (CHEAP_CHAINS.has(chain)) return 'under $1 of gas a week';
+  return 'a few dollars of gas a week';
+}
+
 /** How much capital one farm position needs, from the protocol's own TVL. */
 function capitalFor(p: SnapshotProtocol): number {
   if (p.tvl_usd >= 5_000_000_000) return 250;
@@ -415,20 +458,40 @@ function holdDaysFor(age: number | null): number {
   return 30;
 }
 
-/** The category's main action, in words a farmer can follow. */
+/** The seven-day TVL move, as advice a farmer can act on — only when the move is large. */
+function growthNote(p: SnapshotProtocol): string | null {
+  const g = p.change_7d;
+  if (g === null) return null;
+  if (g <= -10) return `TVL fell ${Math.abs(g).toFixed(1)}% in the last 7 days, so start with half the capital below and add the rest only if the fall stops.`;
+  if (g >= 10) return `TVL grew ${g.toFixed(1)}% in the last 7 days, so enter before the next snapshot counts the inflow.`;
+  return null;
+}
+
+/** The setup step: the chain, its gas, and where to start when the protocol runs on several. */
+function setupFor(p: SnapshotProtocol, chain: string): string {
+  const extra =
+    p.chains.length > 1
+      ? ` It also runs on ${p.chains.length - 1} other chain${p.chains.length - 1 === 1 ? '' : 's'}; start on ${chain} first.`
+      : '';
+  return `Set up a fresh wallet on ${chain} and fund it with the chain's gas token plus the capital below, keeping the seed phrase offline.${extra}`;
+}
+
+/** The category's main action, in words a farmer can follow. The action is the category's own
+ * mechanic — supply, liquidity, margin, a vote — never a named product the snapshot does not
+ * carry: the snapshot has no product data, so the plan names none. */
 function actionFor(p: SnapshotProtocol, capital: number, chain: string): string {
   const c = (p.category ?? '').toLowerCase();
   const name = p.name;
   if (c.includes('risk curator') || c.includes('capital allocator') || c.includes('curator') || c.includes('allocator')) {
-    return `Deposit $${capital} of USDC into one of ${name}'s curated vaults on ${chain} and hold the vault shares.`;
+    return `Allocate $${capital} of USDC through ${name} on ${chain} and hold the position.`;
   }
-  if (c.includes('rwa')) return `Mint $${capital} of ${name}'s tokenized real-world yield asset on ${chain} and hold it.`;
-  if (c.includes('basis')) return `Deposit $${capital} of USDC into ${name}'s delta-neutral basis vault on ${chain} and keep the position open.`;
+  if (c.includes('rwa')) return `Buy $${capital} of ${name}'s tokenized real-world asset on ${chain} and hold it.`;
+  if (c.includes('basis')) return `Deposit $${capital} of USDC into a basis position on ${name} (${chain}) and keep it open.`;
   if (c === 'chain') return `Bridge $${capital} of USDC to ${name} and use it in two of the chain's own apps.`;
-  if (c.includes('cedefi')) return `Deposit $${capital} of USDC into ${name}'s yield product on ${chain} and keep the position open.`;
+  if (c.includes('cedefi')) return `Deposit $${capital} of USDC into ${name} on ${chain} and keep the position open.`;
   if (c.includes('lend') || c.includes('cdp') || c.includes('collateral')) return `Supply $${capital} of USDC to ${name} on ${chain} and keep the position open.`;
-  if (c.includes('dex')) return `Provide $${capital} of liquidity to ${name}'s main pool on ${chain} and keep the position open.`;
-  if (c.includes('yield aggregator') || c.includes('yield')) return `Deposit $${capital} of USDC into ${name}'s highest-TVL vault on ${chain} and keep the shares.`;
+  if (c.includes('dex')) return `Provide $${capital} of liquidity to ${name} on ${chain} and keep the position open.`;
+  if (c.includes('yield aggregator') || c.includes('yield')) return `Deposit $${capital} of USDC into ${name} on ${chain} and keep the position open.`;
   if (c.includes('leveraged farm')) return `Open a $${capital} leveraged farm on ${name} and keep the position open.`;
   if (c.includes('bridge')) return `Bridge $${capital} of USDC to ${chain} through ${name} and use the bridged funds in its app.`;
   if (c.includes('liquid restaking') || c.includes('restak')) return `Restake $${capital} of the staking asset through ${name} on ${chain} and keep the receipt token.`;
@@ -437,10 +500,10 @@ function actionFor(p: SnapshotProtocol, capital: number, chain: string): string 
   if (c.includes('prediction')) return `Fund $${capital} and place one market position on ${name}.`;
   if (c.includes('stablecoin wrapper') || c.includes('stable')) return `Mint or deposit $${capital} of the stable asset through ${name} on ${chain}.`;
   if (c.includes('insurance')) return `Buy $${capital} of cover from ${name} on ${chain} and keep the policy.`;
-  if (c.includes('payment')) return `Move $${capital} through ${name}'s payment rails on ${chain} and keep a balance in its app.`;
-  if (c.includes('governance')) return `Lock $${capital} in ${name}'s governance program on ${chain} and vote on one proposal.`;
+  if (c.includes('payment')) return `Move $${capital} through ${name} on ${chain} and keep a balance in its app.`;
+  if (c.includes('governance')) return `Lock $${capital} in ${name} on ${chain} and vote on one proposal.`;
   if (c.includes('option')) return `Deposit $${capital} of USDC as collateral on ${name} and open one small options position.`;
-  if (c.includes('farm')) return `Stake $${capital} of LP tokens in ${name}'s farm on ${chain} and keep the position open.`;
+  if (c.includes('farm')) return `Stake $${capital} of LP tokens in ${name} on ${chain} and keep the position open.`;
   return `Deposit $${capital} of USDC into ${name} on ${chain} and keep the position open.`;
 }
 
@@ -449,6 +512,7 @@ function weeklyFor(p: SnapshotProtocol): string {
   const c = (p.category ?? '').toLowerCase();
   if (c.includes('dex') || c.includes('yield')) return 'Make one qualifying action each week, such as a deposit, a swap, a harvest or a re-stake.';
   if (c.includes('lend') || c.includes('cdp') || c.includes('collateral')) return 'Make one qualifying action each week, such as a supply, a borrow, a repay or a collateral top-up.';
+  if (c.includes('risk curator') || c.includes('capital allocator') || c.includes('curator') || c.includes('allocator')) return 'Make one qualifying action each week, such as an allocation, a top-up or a position review.';
   if (c.includes('bridge')) return 'Make one qualifying action each week, such as a bridge, a swap or a deposit on the destination chain.';
   if (c.includes('governance')) return 'Make one qualifying action each week, such as a vote, a delegation or a forum post.';
   if (c.includes('prediction')) return 'Make one qualifying action each week, such as a trade, a limit order or a market resolution check.';
@@ -456,43 +520,71 @@ function weeklyFor(p: SnapshotProtocol): string {
   return 'Make one qualifying action each week, such as a deposit, a borrow, a swap or a vote.';
 }
 
+/** The exit step: how to unwind this category's position, and where to claim safely. */
+function exitFor(p: SnapshotProtocol): string {
+  const c = (p.category ?? '').toLowerCase();
+  const claim = 'and claim rewards only from the link the protocol itself publishes.';
+  if (c.includes('dex')) return `Remove the liquidity, claim any trading fees, ${claim}`;
+  if (c.includes('lend') || c.includes('cdp') || c.includes('collateral')) return `Repay any borrow first, then withdraw the supply, ${claim}`;
+  if (c.includes('perpetual') || c.includes('derivative') || c.includes('option')) return `Close every open position, then withdraw the margin or collateral, ${claim}`;
+  if (c.includes('liquid staking') || c.includes('staking') || c.includes('restak')) return `Unstake, wait out any unbonding period, then withdraw, ${claim}`;
+  if (c.includes('bridge')) return `Bridge the funds back to the chain you started on, ${claim}`;
+  if (c.includes('governance')) return `Unlock the position after the vote closes, ${claim}`;
+  if (c.includes('risk curator') || c.includes('capital allocator') || c.includes('curator') || c.includes('allocator')) return `Withdraw the allocation, ${claim}`;
+  return `Withdraw the position from the protocol's own page, ${claim}`;
+}
+
+/** The hold step: the window, and why a young protocol's early activity counts most. */
+function holdFor(age: number | null, hold: number): string {
+  const base = `Hold the position for at least ${hold} days so the activity is counted in more than one snapshot.`;
+  if (age !== null && age < 180) return `${base} This protocol is under six months old, so early activity usually counts most.`;
+  return base;
+}
+
+/** The review step: log the position and re-check the protocol's rank before adding capital. */
+function reviewFor(rank: number, boardSize: number): string {
+  return `Write the wallet, the dates and every transaction in a farm log, and re-check the protocol's TVL and rank (${rank} of ${boardSize} by implied value) before adding capital or exiting early.`;
+}
+
 /**
- * A protocol's farm plan: six steps, each an action with a cost and a time. The plan is derived from
- * the protocol's own record (category, chains, TVL, age), never from a hand-written list of names.
+ * A protocol's farm plan: six steps, each an action with a cost and a time. The plan is derived
+ * from the protocol's own record (category, chains, TVL, age, seven-day move and rank), never
+ * from a hand-written list of names — and it names no product the snapshot does not carry.
  */
-export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
+export function farmSteps(p: SnapshotProtocol, age: number | null, rank: number, boardSize: number): FarmStep[] {
   const chain = chainOf(p);
   const capital = capitalFor(p);
   const hold = holdDaysFor(age);
-  const gas = gasFor(chain);
+  const note = growthNote(p);
+  const entry = note === null ? actionFor(p, capital, chain) : `${actionFor(p, capital, chain)} ${note}`;
   return [
     {
-      text: `Use a fresh wallet that holds only the funds you plan to farm, and keep its seed phrase offline.`,
-      cost: `under $3 of gas for the first transaction`,
-      time: '5 minutes',
+      text: setupFor(p, chain),
+      cost: `${gasFor(chain)} for the first transactions`,
+      time: '10 minutes',
     },
     {
-      text: actionFor(p, capital, chain),
-      cost: `$${capital} of capital and ${gas}`,
+      text: entry,
+      cost: `$${capital} of capital and ${gasFor(chain)}`,
       time: '15 minutes to set up',
     },
     {
       text: weeklyFor(p),
-      cost: 'about $2 of gas a week',
+      cost: weeklyGasFor(chain),
       time: '10 minutes a week',
     },
     {
-      text: `Hold the position for at least ${hold} days so the activity is counted in more than one snapshot.`,
+      text: holdFor(age, hold),
       cost: `the $${capital} stays in the position`,
       time: `${hold} days`,
     },
     {
-      text: `Before you withdraw, open the protocol's own points or rewards page and claim only from the link it publishes.`,
+      text: exitFor(p),
       cost: 'no fee to check, and never pay to claim',
       time: '10 minutes',
     },
     {
-      text: `Write the wallet, the dates and every transaction in a farm log so you can repeat the position or unwind it.`,
+      text: reviewFor(rank, boardSize),
       cost: 'nothing but the log',
       time: '5 minutes',
     },
@@ -545,6 +637,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
   const { board, calibration } = buildBoard(snapshot, model);
   const live = liveRows(snapshot);
   const early = board.filter((r) => !r.watchlist).length;
+  const aboveFloor = board.filter((r) => !r.watchlist && r.tvl_usd >= snapshot.floor_usd).length;
   const radar: RadarData = {
     as_of: snapshot.as_of,
     source: snapshot.source,
@@ -554,6 +647,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     watchlist_size: snapshot.watchlist.length,
     board_size: board.length,
     early_size: early,
+    above_floor_size: aboveFloor,
     live_size: live.length,
     total_implied_usd: board.reduce((n, r) => n + r.implied_value_usd, 0),
     calibration,
