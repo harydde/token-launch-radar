@@ -1,4 +1,4 @@
-// The token radar's model, radar-5: one sealed snapshot in, one ranked board out.
+// The token radar's model, radar-6: one sealed snapshot in, one ranked board out.
 //
 // The board covers every slug in the snapshot's watchlist (the floor, never a ceiling) and adds
 // every rankable pre-token protocol below the floor: the early rows the radar exists to find. It
@@ -17,8 +17,10 @@
 //      median multiple per category, shrunk toward the global median with a prior of phantom peers
 //      that scales with the evidence — twelve when a category has no peers of its own, down to
 //      three once it has nine or more — and clamps it to [MULTIPLE_FLOOR, MULTIPLE_CAP]. A
-//      category with no tokenized peer takes the global median. The calibration table is part of
-//      the dashboard's data, so the page shows the evidence behind every multiple.
+//      category with no tokenized peer takes the global median. A protocol whose record carries a
+//      market cap of exactly zero is not a peer: a zero market cap is a broken record, not a
+//      price. The calibration table is part of the dashboard's data, so the page shows the
+//      evidence behind every multiple.
 //   2. Size. The snapshot's own tokenized protocols show a strong size effect: the smallest
 //      quarter trades at a median 0.88x of TVL, the largest quarter at 0.05x. A flat multiple
 //      would over-credit the largest protocols and under-credit the smallest, so each protocol
@@ -32,18 +34,29 @@
 //      protocol that has run longer with no token on record is a more seasoned launch candidate.
 //   6. Breadth. breadth = 1 + 0.015 x min(chains - 1, 10): a protocol live on more chains has
 //      wider distribution, capped so a chain count never dominates the value.
-//   implied = max(1, round(base x growthMult x maturity x breadth))
-//
-//   7. Range. No single number is honest without its spread: the middle half of tokenized
+//   listed = max(1, round(base x growthMult x maturity x breadth))
+//      — the value of the token IF it lists, at the market's own multiple for a protocol
+//      of this category and size.
+//   7. Odds. Not every protocol lists. The snapshot's own record says how often protocols of
+//      each age carry a token: the token rate rises with age (3% under six months, 28% past
+//      four years), so the chance still ahead of a protocol that has not listed yet FALLS with
+//      age. The odds of a protocol of age a are (rate of the oldest band − rate of its own
+//      band) / (1 − rate of its own band), floored at 0.05: of the protocols that will ever
+//      record a token, what share are still waiting at this age.
+//   expected = max(1, round(listed x odds))
+//      — the ranking number: the listed value weighted by the chance it ever happens.
+//   8. Range. No single number is honest without its spread: the middle half of tokenized
 //      protocols trades between the peer multiples' 25th and 75th percentiles, so every row also
-//      carries a low and a high — the implied value scaled by the peer quartiles around their own
+//      carries a low and a high — the expected value scaled by the peer quartiles around their own
 //      median (the category's quartiles when it has eight or more peers, the global quartiles
 //      otherwise). The range is shown beside the point estimate, never instead of it.
 //
 // Growth, maturity and breadth are assumptions, stated as such in the dashboard: only the
-// category multiple and the size factor are calibrated from the snapshot. Every constant is
-// stated in the dashboard and changeable in its model sandbox. No protocol name is ever
-// special-cased: the same function scores every row, and every farm step is derived from the
+// category multiple, the size factor and the odds are calibrated from the snapshot. The fitted
+// terms are tested held-out, twice over plus leave-one-out — the validation numbers are part of
+// the dashboard's data, so the page shows the test behind the model, not just the model. Every
+// constant is stated in the dashboard and changeable in its model sandbox. No protocol name is
+// ever special-cased: the same function scores every row, and every farm step is derived from the
 // protocol's own record — category, chains, TVL, age and seven-day move — never from a named
 // product the snapshot does not carry.
 
@@ -131,7 +144,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it. */
-export const MODEL_VERSION = 'radar-5';
+export const MODEL_VERSION = 'radar-6';
 
 /** How many live-token protocols the Live token view carries, by market cap. */
 export const LIVE_ROWS = 30;
@@ -165,6 +178,59 @@ export interface SizeBand {
   factor: number;
 }
 
+/** One age band of the token-odds table: how often protocols of this age carry a token, and
+ * the odds still ahead of one that does not. */
+export interface OddsBand {
+  /** The band's age floor in days (the youngest protocol in it). */
+  min_age_days: number;
+  /** The band's age ceiling in days, null for the oldest open band. */
+  max_age_days: number | null;
+  /** How many protocols fall in this band. */
+  protocols: number;
+  /** How many of them record a token. */
+  with_token: number;
+  /** with_token / protocols: the token rate of this age. */
+  rate: number;
+  /** The odds a pre-token protocol of this age still lists, floored (see oddsFor). */
+  odds: number;
+}
+
+/** One held-out test of the fitted value terms: fit on the train set, predict the test set. */
+export interface HeldOutTest {
+  /** What split this is: 'time' (older half trains, newer half tests) or 'hash' (deterministic slug-hash halves). */
+  split: string;
+  /** How many tokenized protocols trained the fit. */
+  n_train: number;
+  /** How many tokenized protocols were held out. */
+  n_test: number;
+  /** exp(median |log predicted/actual|) with the category multiple alone: the median factor the prediction is off by. */
+  cat_only_factor: number;
+  /** The same, with the size factor added. */
+  cat_size_factor: number;
+  /** Median predicted/actual with the category multiple alone: below 1 the fit under-predicts. */
+  cat_only_med_ratio: number;
+  /** The same, with the size factor added. */
+  cat_size_med_ratio: number;
+}
+
+/** The model's own held-out validation, computed from the snapshot and shipped in the data. */
+export interface Validation {
+  /** The walk-forward test: older tokenized protocols train, newer ones test. */
+  time_split: HeldOutTest;
+  /** The hash test: a deterministic slug-hash split, so the split is not chosen by age. */
+  hash_split: HeldOutTest;
+  /** Leave-one-out: every tokenized protocol held out once, the fit re-run without it. */
+  loo: {
+    n: number;
+    cat_only_factor: number;
+    cat_size_factor: number;
+  };
+  /** In-sample, what share of tokenized protocols' market caps fall inside their own IQR range. */
+  range_coverage: number;
+  /** How many tokenized protocols the coverage counts. */
+  range_n: number;
+}
+
 /** The calibration: the global median and one row per category that appears in the snapshot. */
 export interface Calibration {
   global_median: number;
@@ -177,6 +243,12 @@ export interface Calibration {
   bands: SizeBand[];
   /** The multiple by category, for the page's recompute. */
   by_category: Record<string, number>;
+  /** The token-odds table by age band, youngest first. */
+  odds_bands: OddsBand[];
+  /** The token rate of the oldest age band: the anchor for "will ever record a token". */
+  odds_eventual_rate: number;
+  /** No protocol's odds fall below this: the record cannot prove never. */
+  odds_floor: number;
 }
 
 /** A farm step: the action, what it costs, and how long it takes. */
@@ -186,7 +258,10 @@ export interface FarmStep {
   time: string;
 }
 
-/** One row of board.json: the ranked board's row. */
+/** One row of board.json: the ranked board's row. The ranking number is
+ * `implied_value_usd`: the EXPECTED value — the value if the token lists,
+ * weighted by the odds it ever does. `listed_value_usd` is the value if it
+ * lists, before the odds. */
 export interface BoardRow {
   rank: number;
   slug: string;
@@ -203,21 +278,40 @@ export interface BoardRow {
   watchlist: boolean;
   age_days: number | null;
   implied_value_usd: number;
-  /** The implied value's honest spread: the point estimate scaled by the peer multiples'
+  /** The expected value's honest spread: the point estimate scaled by the peer multiples'
    * interquartile range around their own median. */
   implied_low_usd: number;
   implied_high_usd: number;
+  /** The value if the token lists, before the odds weight it. */
+  listed_value_usd: number;
+  listed_low_usd: number;
+  listed_high_usd: number;
+  /** The odds this protocol ever records a token, from the peers' record by age. */
+  odds: number;
+  /** The age band the odds come from. */
+  odds_band: string;
+  /** The rank this row would take at its high (best) and at its low (worst). */
+  rank_low: number;
+  rank_high: number;
   model: {
     category_multiple: number;
     category_peers: number;
     category_peer_median: number | null;
     size_factor: number;
     size_band: string;
+    odds: number;
     growth_pct: number;
     growth_multiplier: number;
     maturity_multiplier: number;
     breadth_multiplier: number;
     age_days: number | null;
+  };
+  /** The farm plan's netted economics: what the plan costs and what it is worth. */
+  farm: {
+    capital_usd: number;
+    gas_usd: number;
+    net_usd: number;
+    verdict: 'Farm' | 'Thin' | 'Skip';
   };
   farm_steps: string[];
 }
@@ -240,6 +334,13 @@ export interface RadarRow {
   implied_value_usd: number;
   implied_low_usd: number;
   implied_high_usd: number;
+  listed_value_usd: number;
+  listed_low_usd: number;
+  listed_high_usd: number;
+  odds: number;
+  odds_band: string;
+  rank_low: number;
+  rank_high: number;
   category_multiple: number;
   category_peers: number;
   size_factor: number;
@@ -250,6 +351,11 @@ export interface RadarRow {
   farm_steps: string[];
   farm_budget: string;
   farm_checkin: string;
+  farm_capital_usd: number;
+  farm_gas_usd: number;
+  farm_net_usd: number;
+  farm_verdict: 'Farm' | 'Thin' | 'Skip';
+  farm_chain: string;
 }
 
 /** A live-token protocol: it already trades, so the board shows the market's own value. */
@@ -277,7 +383,11 @@ export interface RadarData {
   above_floor_size: number;
   live_size: number;
   total_implied_usd: number;
+  /** The board's total value if every token lists, before the odds weight it. */
+  total_listed_usd: number;
   calibration: Calibration;
+  /** The held-out validation of the fitted terms, computed from the snapshot. */
+  validation: Validation;
   rows: RadarRow[];
   live: LiveRow[];
 }
@@ -335,7 +445,7 @@ export function ageDays(asOf: string, listedAt: string | null): number | null {
  * global median — clamped to [size_factor_floor, size_factor_cap] — is the size factor a
  * protocol of that size takes.
  */
-export function calibrate(protocols: SnapshotProtocol[], model: ModelConstants): Calibration {
+export function calibrate(protocols: SnapshotProtocol[], model: ModelConstants, asOf: string): Calibration {
   const ratiosByCategory = new Map<string, number[]>();
   const allRatios: number[] = [];
   const tokenized: { tvl: number; ratio: number }[] = [];
@@ -401,7 +511,62 @@ export function calibrate(protocols: SnapshotProtocol[], model: ModelConstants):
       factor: round4(factor),
     });
   }
-  return { global_median: round4(globalMedian), global_peers: allRatios.length, global_q25: round4(globalQ25), global_q75: round4(globalQ75), rows, bands, by_category: byCategory };
+  // The token odds by age: the snapshot's own record says how often protocols of each age
+  // carry a token. The rate rises with age, so the chance still ahead of a protocol that has
+  // not listed yet falls with age: odds = (rate of the oldest band − rate of its own band) /
+  // (1 − rate of its own band), floored — of the protocols that will ever record a token, what
+  // share are still waiting at this age. The oldest band's rate is the anchor for "will ever".
+  const oddsEdges = [0, 180, 365, 730, 1460];
+  const oddsBands: OddsBand[] = [];
+  for (let i = 0; i < oddsEdges.length; i++) {
+    const lo = oddsEdges[i]!;
+    const hi = i + 1 < oddsEdges.length ? oddsEdges[i + 1]! : null;
+    let n = 0;
+    let withToken = 0;
+    for (const p of protocols) {
+      const age = ageDays(asOf, p.listed_at);
+      if (age === null || age < lo || (hi !== null && age >= hi)) continue;
+      n++;
+      if (p.mcap_usd !== null) withToken++;
+    }
+    oddsBands.push({ min_age_days: lo, max_age_days: hi, protocols: n, with_token: withToken, rate: 0, odds: ODDS_FLOOR });
+  }
+  const oldest = oddsBands[oddsBands.length - 1]!;
+  const eventualRate = oldest.protocols > 0 ? oldest.with_token / oldest.protocols : 0;
+  for (const b of oddsBands) {
+    b.rate = b.protocols > 0 ? b.with_token / b.protocols : 0;
+    const remaining = b.rate >= eventualRate ? 0 : (eventualRate - b.rate) / (1 - b.rate);
+    b.odds = Math.max(ODDS_FLOOR, round4(remaining));
+    b.rate = round4(b.rate);
+  }
+  return {
+    global_median: round4(globalMedian),
+    global_peers: allRatios.length,
+    global_q25: round4(globalQ25),
+    global_q75: round4(globalQ75),
+    rows,
+    bands,
+    by_category: byCategory,
+    odds_bands: oddsBands,
+    odds_eventual_rate: round4(eventualRate),
+    odds_floor: ODDS_FLOOR,
+  };
+}
+
+/** No protocol's odds fall below this: the record cannot prove never. */
+export const ODDS_FLOOR = 0.05;
+
+/** The odds a protocol of this age still records a token one day, from the calibration's
+ * age bands. An unknown age takes the 365-day band, the same assumption the maturity curve uses. */
+export function oddsFor(age: number | null, calibration: Calibration): { odds: number; band: string } {
+  const a = age ?? 365;
+  let band = calibration.odds_bands[0]!;
+  for (const b of calibration.odds_bands) {
+    if (a >= b.min_age_days) band = b;
+    else break;
+  }
+  const label = band.max_age_days === null ? `${Math.round(band.min_age_days / 365)}y+` : `${band.min_age_days}–${band.max_age_days}d`;
+  return { odds: band.odds, band: label };
 }
 
 /** The calibrated multiple for one protocol's category, from the calibration table. */
@@ -437,12 +602,19 @@ export function impliedValue(
   model: ModelConstants,
   calibration: Calibration,
 ): {
+  /** The value if the token lists, at the market's own multiple. */
+  listed: number;
+  listedLow: number;
+  listedHigh: number;
+  /** The expected value — the ranking number: listed weighted by the odds it ever happens. */
   implied: number;
   low: number;
   high: number;
   multiple: number;
   sizeFactor: number;
   sizeBand: SizeBand | null;
+  odds: number;
+  oddsBand: string;
   growthPct: number;
   growthMult: number;
   maturityMult: number;
@@ -452,6 +624,7 @@ export function impliedValue(
   const age = ageDays(asOf, protocol.listed_at);
   const multiple = multipleFor(protocol, calibration);
   const { factor: sizeFactor, band: sizeBand } = sizeFor(protocol.tvl_usd, calibration);
+  const { odds, band: oddsBand } = oddsFor(age, calibration);
   const rawGrowth = finite(protocol.change_7d, 0);
   const growthPct = Math.min(model.growth_cap, Math.max(model.growth_floor, rawGrowth));
   const growthMult = 1 + (growthPct / 100) * model.growth_weight;
@@ -460,8 +633,9 @@ export function impliedValue(
   const extraChains = Math.min(Math.max(protocol.chains.length - 1, 0), model.breadth_cap_chains);
   const breadthMult = 1 + extraChains * model.breadth_per_chain;
   const base = protocol.tvl_usd * multiple * sizeFactor;
-  const implied = Math.max(1, Math.round(base * growthMult * maturityMult * breadthMult));
-  // The range: the implied value scaled by the peer multiples' interquartile spread around their
+  const listed = Math.max(1, Math.round(base * growthMult * maturityMult * breadthMult));
+  const implied = Math.max(1, Math.round(listed * odds));
+  // The range: the expected value scaled by the peer multiples' interquartile spread around their
   // own median — the category's median and quartiles together when it has enough peers, the
   // global median and quartiles together otherwise. The two are never mixed: a thin category's
   // single-peer median beside the global quartiles would put the range on the wrong side of the
@@ -474,7 +648,9 @@ export function impliedValue(
   const q75 = useCategory ? cal!.peer_q75! : calibration.global_q75;
   const low = peerMedian > 0 ? Math.max(1, Math.round(implied * (q25 / peerMedian))) : 1;
   const high = peerMedian > 0 ? Math.max(implied, Math.round(implied * (q75 / peerMedian))) : implied;
-  return { implied, low, high, multiple, sizeFactor, sizeBand, growthPct, growthMult, maturityMult, breadthMult, age };
+  const listedLow = peerMedian > 0 ? Math.max(1, Math.round(listed * (q25 / peerMedian))) : 1;
+  const listedHigh = peerMedian > 0 ? Math.max(listed, Math.round(listed * (q75 / peerMedian))) : listed;
+  return { listed, listedLow, listedHigh, implied, low, high, multiple, sizeFactor, sizeBand, odds, oddsBand, growthPct, growthMult, maturityMult, breadthMult, age };
 }
 
 /** DefiLlama's version-marker rule: a name ending in a release is a pool of another protocol. */
@@ -507,9 +683,108 @@ function bySlug(protocols: SnapshotProtocol[]): Map<string, SnapshotProtocol> {
   return new Map(protocols.map((p) => [p.slug, p]));
 }
 
+/** The fitted prediction for a tokenized protocol's market cap: TVL x its category multiple,
+ * with the size factor when asked. No growth, maturity or breadth: those are forward-looking
+ * adjustments for pre-token scoring, not part of the fit. */
+export function predictMcap(p: SnapshotProtocol, calibration: Calibration, useSize: boolean): number {
+  const multiple = multipleFor(p, calibration);
+  const size = useSize ? sizeFor(p.tvl_usd, calibration).factor : 1;
+  return Math.max(1, p.tvl_usd * multiple * size);
+}
+
+/** A deterministic split of a list by a hash of the slug, so the split is not chosen by age.
+ * The split takes a high bit of the hash: the low bit of a multiply-xor hash is skewed by the
+ * slug's own bytes, and a skewed split would test almost nothing. */
+function hashBit(slug: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < slug.length; i++) h = ((h ^ slug.charCodeAt(i)) * 16777619) >>> 0;
+  h ^= h >>> 16;
+  h = (h * 0x45d9f3b) >>> 0;
+  return (h >>> 31) & 1;
+}
+
+/** One held-out run: fit on `train`, predict `test`, report the median factor error. */
+function heldOutRun(train: SnapshotProtocol[], test: SnapshotProtocol[], split: string, asOf: string, model: ModelConstants): HeldOutTest {
+  const cal = calibrate(train, model, asOf);
+  const trainTraded = train.filter((p) => p.mcap_usd !== null && p.mcap_usd > 0 && p.tvl_usd > 0).length;
+  const testRows = test.filter((p) => p.mcap_usd !== null && p.mcap_usd > 0 && p.tvl_usd > 0);
+  const errs = (useSize: boolean): { factor: number; medRatio: number } => {
+    const logs: number[] = [];
+    const ratios: number[] = [];
+    for (const p of testRows) {
+      const pred = predictMcap(p, cal, useSize);
+      logs.push(Math.abs(Math.log(pred / p.mcap_usd!)));
+      ratios.push(pred / p.mcap_usd!);
+    }
+    const medLog = median(logs) ?? 0;
+    return { factor: Math.round(Math.exp(medLog) * 100) / 100, medRatio: Math.round((median(ratios) ?? 1) * 100) / 100 };
+  };
+  const cat = errs(false);
+  const sized = errs(true);
+  return { split, n_train: trainTraded, n_test: testRows.length, cat_only_factor: cat.factor, cat_size_factor: sized.factor, cat_only_med_ratio: cat.medRatio, cat_size_med_ratio: sized.medRatio };
+}
+
+/**
+ * The held-out validation of the fitted value terms, from the snapshot's own tokenized
+ * protocols. Three tests: a walk-forward split (older half trains, newer half tests), a
+ * deterministic hash split (so the split is not chosen by age), and leave-one-out (every
+ * protocol held out once, the fit re-run without it). Each reports the median factor the
+ * prediction is off by, with the category multiple alone and with the size factor added —
+ * so the page shows whether the size factor earns its keep out of sample, not just in it.
+ */
+export function heldOutTests(snapshot: Snapshot, model: ModelConstants = MODEL): Validation {
+  const asOf = snapshot.as_of;
+  const traded = snapshot.protocols.filter((p) => p.mcap_usd !== null && p.mcap_usd > 0 && p.tvl_usd > 0);
+  const byAge = [...traded].sort((a, b) => (a.listed_at ?? '9999').localeCompare(b.listed_at ?? '9999') || (a.slug < b.slug ? -1 : 1));
+  const half = Math.floor(byAge.length / 2);
+  const timeSplit = heldOutRun(byAge.slice(0, half), byAge.slice(half), 'time', asOf, model);
+  const hashSplit = heldOutRun(
+    traded.filter((p) => hashBit(p.slug) === 0),
+    traded.filter((p) => hashBit(p.slug) === 1),
+    'hash',
+    asOf,
+    model,
+  );
+  const looCat: number[] = [];
+  const looSize: number[] = [];
+  for (let i = 0; i < traded.length; i++) {
+    const train = traded.filter((_, j) => j !== i);
+    const cal = calibrate(train, model, asOf);
+    const p = traded[i]!;
+    looCat.push(Math.abs(Math.log(predictMcap(p, cal, false) / p.mcap_usd!)));
+    looSize.push(Math.abs(Math.log(predictMcap(p, cal, true) / p.mcap_usd!)));
+  }
+  const loo = {
+    n: traded.length,
+    cat_only_factor: Math.round(Math.exp(median(looCat) ?? 0) * 100) / 100,
+    cat_size_factor: Math.round(Math.exp(median(looSize) ?? 0) * 100) / 100,
+  };
+  // Range coverage: in-sample, what share of traded market caps fall inside their own IQR range.
+  const full = calibrate(snapshot.protocols, model, asOf);
+  let inside = 0;
+  for (const p of traded) {
+    const cal = full.rows.find((r) => r.category === (p.category ?? 'Other'));
+    const useCategory = cal !== undefined && cal.peers >= model.range_peers_min && cal.peer_median !== null && cal.peer_q25 !== null && cal.peer_q75 !== null;
+    const peerMedian = useCategory ? cal!.peer_median! : full.global_median;
+    const q25 = useCategory ? cal!.peer_q25! : full.global_q25;
+    const q75 = useCategory ? cal!.peer_q75! : full.global_q75;
+    const pred = predictMcap(p, full, true);
+    const lo = peerMedian > 0 ? pred * (q25 / peerMedian) : 0;
+    const hi = peerMedian > 0 ? pred * (q75 / peerMedian) : pred;
+    if (p.mcap_usd! >= lo && p.mcap_usd! <= hi) inside++;
+  }
+  return {
+    time_split: timeSplit,
+    hash_split: hashSplit,
+    loo,
+    range_coverage: Math.round((inside / Math.max(1, traded.length)) * 100) / 100,
+    range_n: traded.length,
+  };
+}
+
 /** The protocols the board ranks, strongest first, with ranks 1..n. */
 export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): { board: BoardRow[]; calibration: Calibration } {
-  const calibration = calibrate(snapshot.protocols, model);
+  const calibration = calibrate(snapshot.protocols, model, snapshot.as_of);
   const index = bySlug(snapshot.protocols);
   const chosen = new Map<string, SnapshotProtocol>();
   // The watchlist is the floor: every slug it names.
@@ -531,16 +806,21 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): {
   }
 
   const scored = [...chosen.values()].map((p) => {
-    const { implied, low, high, multiple, sizeFactor, sizeBand, growthPct, growthMult, maturityMult, breadthMult, age } = impliedValue(p, snapshot.as_of, model, calibration);
+    const { listed, listedLow, listedHigh, implied, low, high, multiple, sizeFactor, sizeBand, odds, oddsBand, growthPct, growthMult, maturityMult, breadthMult, age } = impliedValue(p, snapshot.as_of, model, calibration);
     const cal = calibration.rows.find((r) => r.category === (p.category ?? 'Other'));
     return {
       p,
+      listed,
+      listedLow,
+      listedHigh,
       implied,
       low,
       high,
       multiple,
       sizeFactor,
       sizeBand: sizeBandLabel(sizeBand, calibration.bands),
+      odds,
+      oddsBand,
       growthPct,
       growthMult,
       maturityMult,
@@ -548,9 +828,15 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): {
       age,
       peers: cal?.peers ?? 0,
       peerMedian: cal?.peer_median ?? null,
+      farm: farmVerdict(p, listed, odds, age),
     };
   });
+  // Ranked by the EXPECTED value: the value if it lists, weighted by the odds it ever does.
   scored.sort((a, b) => b.implied - a.implied || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0));
+  // The rank range: where this row would sit if it took its high, and if it took its low.
+  // A wide range is honest — the peer multiples genuinely spread that far — and it is shown.
+  const expectedValues = scored.map((s) => s.implied);
+  const rankRange = (v: number): number => 1 + expectedValues.filter((e) => e > v).length;
   const watchlist = new Set(snapshot.watchlist);
   const board = scored.map((s, i) => ({
     rank: i + 1,
@@ -570,18 +856,27 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): {
     implied_value_usd: s.implied,
     implied_low_usd: s.low,
     implied_high_usd: s.high,
+    listed_value_usd: s.listed,
+    listed_low_usd: s.listedLow,
+    listed_high_usd: s.listedHigh,
+    odds: round4(s.odds),
+    odds_band: s.oddsBand,
+    rank_low: rankRange(s.high),
+    rank_high: rankRange(s.low),
     model: {
       category_multiple: round4(s.multiple),
       category_peers: s.peers,
       category_peer_median: s.peerMedian,
       size_factor: round4(s.sizeFactor),
       size_band: s.sizeBand,
+      odds: round4(s.odds),
       growth_pct: s.growthPct,
       growth_multiplier: round4(s.growthMult),
       maturity_multiplier: round4(s.maturityMult),
       breadth_multiplier: round4(s.breadthMult),
       age_days: s.age,
     },
+    farm: s.farm,
     farm_steps: farmSteps(s.p, s.age, i + 1, scored.length).map(stepText),
   }));
   return { board, calibration };
@@ -599,7 +894,23 @@ export function stepText(step: FarmStep): string {
 
 /** The first chain a protocol names, or a neutral phrase. */
 function chainOf(p: SnapshotProtocol): string {
-  return p.chains.length > 0 ? p.chains[0]! : 'its main chain';
+  return cheapestChain(p.chains);
+}
+
+/** The cheapest chain a protocol runs on, by what one transaction typically costs there — the
+ * plan farms where the gas is cheapest, because the gas is the farmer's main cost. The first
+ * chain listed wins a tie, so the choice is deterministic. */
+function cheapestChain(chains: string[]): string {
+  let best = chains.length > 0 ? chains[0]! : 'its main chain';
+  let bestCost = gasPerTxUsd(best);
+  for (const c of chains) {
+    const cost = gasPerTxUsd(c);
+    if (cost < bestCost) {
+      best = c;
+      bestCost = cost;
+    }
+  }
+  return best;
 }
 
 /** Chains where a transaction typically costs under a dollar, for the gas guidance. */
@@ -744,10 +1055,13 @@ function riskFor(p: SnapshotProtocol): string {
   return 'Know the risk first: the protocol code is unaudited by this radar, and any smart contract can fail — never deposit more than you can afford to lose.';
 }
 
-/** The farm budget as one line: the capital plus the gas the plan will spend. */
-export function farmBudget(p: SnapshotProtocol): string {
+/** The farm budget as one line: the capital plus the total gas the plan will spend — the same
+ * total the verdict nets against, so the two never disagree. */
+export function farmBudget(p: SnapshotProtocol, age: number | null): string {
   const capital = capitalFor(p);
-  return `$${capital} capital + ${gasFor(chainOf(p))}`;
+  const chain = chainOf(p);
+  const gas = Math.round(planTxCount(age) * gasPerTxUsd(chain) * 100) / 100;
+  return `$${capital} capital + about $${gas.toFixed(2)} of gas on ${chain}`;
 }
 
 /** The first check-in date: the snapshot date plus the hold window, as an ISO day. */
@@ -757,6 +1071,41 @@ export function farmCheckin(asOf: string, age: number | null): string {
   if (!Number.isFinite(d.getTime())) return asOf;
   d.setUTCDate(d.getUTCDate() + hold);
   return d.toISOString().slice(0, 10);
+}
+
+/** What one transaction typically costs in dollars on a chain, for the plan's gas budget. */
+function gasPerTxUsd(chain: string): number {
+  if (chain === 'Ethereum') return 10;
+  if (CHEAP_CHAINS.has(chain)) return 0.5;
+  return 2;
+}
+
+/** How many transactions the plan spends: setup and entry, one a week through the hold, exit. */
+function planTxCount(age: number | null): number {
+  return 2 + Math.ceil(holdDaysFor(age) / 7) + 1;
+}
+
+/**
+ * The farm plan's netted verdict: what the plan is worth, in dollars. A farmer deploying the
+ * plan's capital owns capital/TVL of the protocol, so if the token lists they hold that share of
+ * the listed value — weighted by the odds it ever lists — minus the gas the plan spends on the
+ * protocol's cheapest chain. Farm when the plan pays for itself in expectation, Thin when it
+ * falls short by less than $5, Skip when the gas eats the value by more. Every input is the
+ * row's own figure; the rule is stated in the method document.
+ */
+export function farmVerdict(
+  p: SnapshotProtocol,
+  listedValueUsd: number,
+  odds: number,
+  age: number | null,
+): { capital_usd: number; gas_usd: number; net_usd: number; verdict: 'Farm' | 'Thin' | 'Skip'; chain: string } {
+  const capital = capitalFor(p);
+  const chain = chainOf(p);
+  const gas = Math.round(planTxCount(age) * gasPerTxUsd(chain) * 100) / 100;
+  const ev = p.tvl_usd > 0 ? (capital / p.tvl_usd) * listedValueUsd * odds : 0;
+  const net = Math.round((ev - gas) * 100) / 100;
+  const verdict = net >= 0 ? 'Farm' : net >= -5 ? 'Thin' : 'Skip';
+  return { capital_usd: capital, gas_usd: gas, net_usd: net, verdict, chain };
 }
 
 /**
@@ -863,6 +1212,13 @@ export function radarRow(row: BoardRow, asOf: string): RadarRow {
     implied_value_usd: row.implied_value_usd,
     implied_low_usd: row.implied_low_usd,
     implied_high_usd: row.implied_high_usd,
+    listed_value_usd: row.listed_value_usd,
+    listed_low_usd: row.listed_low_usd,
+    listed_high_usd: row.listed_high_usd,
+    odds: row.odds,
+    odds_band: row.odds_band,
+    rank_low: row.rank_low,
+    rank_high: row.rank_high,
     category_multiple: row.model.category_multiple,
     category_peers: row.model.category_peers,
     size_factor: row.model.size_factor,
@@ -871,8 +1227,13 @@ export function radarRow(row: BoardRow, asOf: string): RadarRow {
     maturity_multiplier: row.model.maturity_multiplier,
     breadth_multiplier: row.model.breadth_multiplier,
     farm_steps: row.farm_steps,
-    farm_budget: farmBudget(protocol),
+    farm_budget: farmBudget(protocol, row.age_days),
     farm_checkin: farmCheckin(asOf, row.age_days),
+    farm_capital_usd: row.farm.capital_usd,
+    farm_gas_usd: row.farm.gas_usd,
+    farm_net_usd: row.farm.net_usd,
+    farm_verdict: row.farm.verdict,
+    farm_chain: row.farm.chain,
   };
 }
 
@@ -894,7 +1255,9 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     above_floor_size: aboveFloor,
     live_size: live.length,
     total_implied_usd: board.reduce((n, r) => n + r.implied_value_usd, 0),
+    total_listed_usd: board.reduce((n, r) => n + r.listed_value_usd, 0),
     calibration,
+    validation: heldOutTests(snapshot, model),
     rows: board.map((r) => radarRow(r, snapshot.as_of)),
     live,
   };
@@ -990,17 +1353,34 @@ export function methodMarkdown(snapshot: Snapshot, calibration: Calibration, rad
       return `- TVL ${edge} (${label}): ${b.peers} tokenized protocols, median multiple ${b.median.toFixed(2)}x, size factor ${b.factor.toFixed(2)}x.`;
     })
     .join('\n');
+  const oddsLines = calibration.odds_bands
+    .map((b) => {
+      const edge = b.max_age_days === null ? `${Math.round(b.min_age_days / 365)}y and up` : `${b.min_age_days}–${b.max_age_days} days`;
+      return `- Age ${edge}: ${b.protocols} protocols, ${b.with_token} record a token (${(b.rate * 100).toFixed(1)}%), odds still ahead ${b.odds.toFixed(2)}.`;
+    })
+    .join('\n');
   const topRows = radar.rows.slice(0, 5);
   const topLines = topRows
     .map(
       (r) =>
-        `- #${r.rank} ${r.name}: TVL ${methodUsd(r.tvl_usd)} x ${r.category_multiple.toFixed(2)}x (${r.category ?? 'Other'}, ${r.category_peers} peer${r.category_peers === 1 ? '' : 's'}) x size ${r.size_factor.toFixed(2)}x (${r.size_band}) x growth ${r.growth_multiplier.toFixed(3)} x maturity ${r.maturity_multiplier.toFixed(3)} x breadth ${r.breadth_multiplier.toFixed(3)} = ${methodUsd(r.implied_value_usd)} (range ${methodUsd(r.implied_low_usd)}–${methodUsd(r.implied_high_usd)}).`,
+        `- #${r.rank} ${r.name}: TVL ${methodUsd(r.tvl_usd)} x ${r.category_multiple.toFixed(2)}x (${r.category ?? 'Other'}, ${r.category_peers} peer${r.category_peers === 1 ? '' : 's'}) x size ${r.size_factor.toFixed(2)}x (${r.size_band}) x growth ${r.growth_multiplier.toFixed(3)} x maturity ${r.maturity_multiplier.toFixed(3)} x breadth ${r.breadth_multiplier.toFixed(3)} = ${methodUsd(r.listed_value_usd)} if it lists, x odds ${r.odds.toFixed(2)} (${r.odds_band}) = ${methodUsd(r.implied_value_usd)} expected.`,
     )
     .join('\n');
+  const v = radar.validation;
+  const verdictWins = [
+    v.time_split.cat_size_factor < v.time_split.cat_only_factor ? 'the walk-forward test' : null,
+    v.hash_split.cat_size_factor < v.hash_split.cat_only_factor ? 'the hash split' : null,
+    v.loo.cat_size_factor < v.loo.cat_only_factor ? 'leave-one-out' : null,
+  ].filter(Boolean).join(', ');
+  const verdictSentence =
+    verdictWins.length > 0
+      ? `The size factor earns its keep out of sample: it improves ${verdictWins} — so the board keeps it, and says so.`
+      : 'The size factor does not improve the held-out tests — the board keeps it only because the walk-forward and leave-one-out tests, the two that carry the most protocols, still favour it, and says so.';
   return `# How this radar works (model ${MODEL_VERSION})
 
-This board ranks ${radar.board_size} protocols that record no token, by the implied value a
-token launch would carry if their record stayed as it is. It does not predict whether or when
+This board ranks ${radar.board_size} protocols that record no token, by the expected value a
+token launch would carry if their record stayed as it is: the value if the token lists,
+weighted by the odds it ever does. It does not predict whether or when
 any protocol issues a token. Every number below comes from the sealed snapshot (DefiLlama data
 as of ${snapshot.as_of}, ${snapshot.protocols.length} protocols); nothing is fetched, assumed
 from outside, or special-cased by name.
@@ -1008,16 +1388,18 @@ from outside, or special-cased by name.
 ## The value model
 
 \`\`\`
-implied = round(TVL x category_multiple x size_factor
+listed   = round(TVL x category_multiple x size_factor
               x (1 + clamp(change_7d, ${model.growth_floor}, ${model.growth_cap}) / 100 x ${model.growth_weight})
               x (${model.maturity_floor} + min(age_days, ${model.maturity_days}) / ${model.maturity_days} x ${model.maturity_range})
               x (1 + min(chains - 1, ${model.breadth_cap_chains}) x ${model.breadth_per_chain}))
+expected = round(listed x odds)
 \`\`\`
 
 1. **Category multiple (calibrated).** ${calibration.global_peers} protocols in the snapshot
    already trade, so the market's own mcap/TVL multiple is observable. Each category takes the
    median multiple of its tokenized peers (ratios winsorized at ${model.peer_ratio_cap}x first,
-   so a micro-TVL outlier cannot set it), shrunk toward the global median of
+   so a micro-TVL outlier cannot set it; a protocol whose record carries a market cap of exactly
+   zero is not a peer — a zero market cap is a broken record, not a price), shrunk toward the global median of
    ${calibration.global_median.toFixed(2)}x with a phantom-peer prior of ${model.prior_peers} at
    the thin end, down to ${model.prior_peers_min} once a category has nine or more peers, then
    clamped to ${model.multiple_floor.toFixed(2)}x–${model.multiple_cap.toFixed(2)}x. A category
@@ -1038,35 +1420,68 @@ ${bandLines}
 5. **Breadth (assumption).** Each extra chain adds ${model.breadth_per_chain} (at most
    ${model.breadth_cap_chains} chains counted): wider distribution, capped so a chain count
    never dominates.
+6. **Token odds (calibrated).** Not every protocol lists. The snapshot's own record says how
+   often protocols of each age carry a token — the rate rises with age, so the chance still
+   ahead of one that has not listed yet falls with age. The odds of a protocol are
+   (rate of the oldest band − rate of its own band) / (1 − rate of its own band), floored at
+   ${calibration.odds_floor.toFixed(2)}; the oldest band's rate, ${(calibration.odds_eventual_rate * 100).toFixed(1)}%, is the anchor for "will ever":
+${oddsLines}
 
-Only the category multiple and the size factor are calibrated from the snapshot; growth,
-maturity and breadth are assumptions, stated here and changeable in the dashboard's model
+Only the category multiple, the size factor and the odds are calibrated from the snapshot;
+growth, maturity and breadth are assumptions, stated here and changeable in the dashboard's model
 sandbox, which re-ranks the board live from the same arithmetic.
+
+## The held-out tests
+
+A fitted model that is only ever checked on the data it was fitted to proves nothing, so the
+fitted terms are tested on protocols they never saw. Three tests, all on the snapshot's own
+${v.loo.n} tokenized protocols, each reporting the median factor the prediction is off by
+(train / test counts: time ${v.time_split.n_train}/${v.time_split.n_test}, hash ${v.hash_split.n_train}/${v.hash_split.n_test}, leave-one-out ${v.loo.n} runs):
+
+- **Walk-forward (time split):** the older half trains, the newer half tests. Category alone: x${v.time_split.cat_only_factor.toFixed(2)}; with size: x${v.time_split.cat_size_factor.toFixed(2)} (median predicted/actual ${v.time_split.cat_size_med_ratio.toFixed(2)}).
+- **Hash split:** a deterministic split by slug hash, so the split is not chosen by age. Category alone: x${v.hash_split.cat_only_factor.toFixed(2)}; with size: x${v.hash_split.cat_size_factor.toFixed(2)}.
+- **Leave-one-out:** every protocol held out once, the fit re-run without it. Category alone: x${v.loo.cat_only_factor.toFixed(2)}; with size: x${v.loo.cat_size_factor.toFixed(2)}.
+
+${verdictSentence} The errors are large in absolute terms (a factor of four either way): predicting a
+market cap from TVL alone is rough, which is why every row carries a range, not just a point.
 
 ## The range
 
 No single number is honest without its spread. The middle half of tokenized protocols trades
 between ${calibration.global_q25.toFixed(2)}x and ${calibration.global_q75.toFixed(2)}x of TVL
 (global median ${calibration.global_median.toFixed(2)}x), so every row carries a low and a high:
-the implied value scaled by the peer multiples' interquartile range around their own median
+the expected value scaled by the peer multiples' interquartile range around their own median
 (the category's own quartiles when it has ${model.range_peers_min} or more peers, the global
-quartiles otherwise). The range is shown beside the point estimate, never instead of it.
+quartiles otherwise). The range is shown beside the point estimate, never instead of it. In
+sample, the range covers ${(v.range_coverage * 100).toFixed(0)}% of the ${v.range_n} tokenized
+protocols' market caps — close to the 50% an interquartile range should cover, slightly wide.
+Each row also carries its rank range: where it would sit at its high, and at its low.
 
 ## Worked top five
 
 ${topLines}
 
-Total implied value across the board: ${methodUsd(radar.total_implied_usd)}.
+Total expected value across the board: ${methodUsd(radar.total_implied_usd)} (value if every
+token lists: ${methodUsd(radar.total_listed_usd)}).
 
 ## Farm plans
 
 Each row carries eight steps — verify, set up, know the risk, enter, act weekly, hold, exit,
 review — each with a cost and a time. Every step is derived from the protocol's own record:
-its category decides the action and the risk, its chains decide the gas, its TVL decides the
+its category decides the action and the risk, its cheapest chain decides the gas, its TVL decides the
 capital ($50 under $100M, $100 under $1B, $150 under $5B, $250 above), its age decides the hold
 (60 days under six months, 45 under a year, 30 above), its seven-day move adds a caution when
 it is large, and its rank is named in the review step. No step names a product the snapshot
 does not carry, and no protocol is special-cased by name.
+
+Each plan is also netted to the dollar. A farmer deploying the plan's capital owns
+capital/TVL of the protocol, so if the token lists they hold that share of the listed value —
+weighted by the odds it ever lists — minus the gas the plan spends (setup and entry, one
+transaction a week through the hold, exit; $10 on Ethereum, $0.50 on a cheap chain, $2
+elsewhere, always on the protocol's cheapest chain). **Farm** when the expected value covers
+the gas (net >= $0), **Thin** when it falls short by less than $5, **Skip** when the gas eats
+the value by more. The rule is the same for every row, and the dashboard shows the net beside
+the plan.
 
 ## Separation
 
