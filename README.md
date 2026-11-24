@@ -18,16 +18,21 @@ every pre-token protocol with the calibrated model in `lib/model.ts`, and writes
   rankable pre-token protocol below the floor, plus the standalone pre-token
   protocols above the floor that the watchlist does not name (a bridge, a
   wrapped asset or a staking receipt is not ranked as a launch on its own).
-  Each row carries an implied value and a six-step farm plan derived from the
+  Each row carries an implied value with a low and a high from the peer
+  multiples' interquartile range, and an eight-step farm plan derived from the
   protocol's own record: category, chains, TVL, age, seven-day move and rank.
-- `data.js` — the dashboard's dataset, including the calibration table.
+- `data.js` — the dashboard's dataset, including the calibration table, the
+  TVL size bands and each row's farm plan, so the page shows exactly the steps
+  board.json carries.
 - `dashboard/` — a static page (no network): sortable/filterable board, a
-  detail view for every protocol, a live-token view, the calibration table and a
-  model sandbox that re-ranks the board live.
+  detail view for every protocol, a live-token view, the calibration table and
+  size bands, a category overview and a model sandbox that re-ranks the board
+  live. The build also writes `dashboard/method.md`, the method document with
+  the snapshot's own calibration figures.
 - `screenshots/` — the board, a protocol detail view and a filtered view.
 - `dossier.json` — built with the vendored make.fun library.
 
-## The model (radar-3)
+## The model (radar-5)
 
 Implied value is calibrated from the snapshot's own figures, never from a list
 of names:
@@ -41,17 +46,26 @@ of names:
    prior is deliberately strong at the thin end: several categories have only
    one or two tokenized peers, and a single peer must not set the multiple on
    its own; but a well-evidenced category's own median should speak.
-2. **Base** = TVL x category multiple.
-3. **Growth** = 1 + clamp(change_7d, −50%, +100%) x 0.5.
-4. **Maturity** = 0.6 + min(age, 1095 days) / 1095 x 0.4.
-5. **Breadth** = 1 + 0.015 x min(chains − 1, 10).
+2. **Size.** The market does not price all sizes alike: the smallest quarter of
+   tokenized protocols trades at a median 0.88x of TVL, the largest quarter at
+   0.05x. Each protocol takes a size factor — its TVL quartile band's median
+   over the global median, clamped to 0.5x–2.0x so the pattern adjusts the
+   value without dominating it.
+3. **Base** = TVL x category multiple x size factor.
+4. **Growth** = 1 + clamp(change_7d, −50%, +100%) x 0.5.
+5. **Maturity** = 0.6 + min(age, 1095 days) / 1095 x 0.4.
+6. **Breadth** = 1 + 0.015 x min(chains − 1, 10).
+7. **Range.** Every row also carries a low and a high: the implied value scaled
+   by the peer multiples' interquartile spread around their own median (the
+   category's own quartiles when it has eight or more peers, the global
+   quartiles otherwise).
 
 Growth, maturity and breadth are assumptions, stated as such in the dashboard:
-only the category multiple is calibrated from the snapshot. The dashboard
-states every constant and shows the calibration table with the peer count
-behind each multiple. Farm plans name no product the snapshot does not carry:
-every step follows from the protocol's category, chains, TVL, age, seven-day
-move and rank.
+only the category multiple and the size factor are calibrated from the
+snapshot. The dashboard states every constant and shows the calibration table
+with the peer count behind each multiple, plus the size bands. Farm plans name
+no product the snapshot does not carry: every step follows from the protocol's
+category, chains, TVL, age, seven-day move and rank.
 
 ## Run it
 
