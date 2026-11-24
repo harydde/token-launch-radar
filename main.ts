@@ -9,7 +9,9 @@
 // and dashboard/app.js read /output/data.js, which this program writes from the same board. The model
 // calibrates its mcap/TVL multiples from the snapshot's own tokenized protocols, so the page states
 // the evidence behind every implied value; the page also carries a model sandbox that recomputes the
-// board live from the same arithmetic.
+// board live from the same arithmetic. The build also writes dashboard/method.md, the method document
+// with the snapshot's own calibration figures, so the dossier's text carries the model in words as
+// well as in code.
 //
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input ../input/snapshot.json
@@ -17,7 +19,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { boardIssue, buildRadar, dataScript, parseSnapshot } from './lib/model.ts';
+import { boardIssue, buildRadar, dataScript, methodMarkdown, parseSnapshot } from './lib/model.ts';
 import { buildDossier } from './vendor/makefun-board.ts';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -72,6 +74,9 @@ function copyFiles(from: string, to: string): string[] {
 
 const dash = copyFiles(join(here, 'dashboard'), join(out, 'dashboard'));
 const shots = copyFiles(join(here, 'screenshots'), join(out, 'screenshots'));
+// The method document is generated, not copied: it carries the calibration figures of this
+// snapshot, so the dossier's text shows the model in words with its own numbers.
+writeFileSync(join(out, 'dashboard', 'method.md'), methodMarkdown(snapshot, radar.calibration, radar));
 if (shots.length < 3) {
   process.stderr.write(`token radar: screenshots/ holds ${shots.length} image${shots.length === 1 ? '' : 's'}: hand in 3, the board, a detail view and a filtered view\n`);
   process.exit(1);
