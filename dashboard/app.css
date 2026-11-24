@@ -108,6 +108,7 @@ tbody tr[data-selected="true"] { background: rgba(47, 212, 138, 0.08); }
 .implied-nums { display: grid; gap: 1px; }
 .range { font-family: var(--font-num); font-size: 11px; white-space: nowrap; }
 .overview { margin-top: var(--step-4); padding: var(--step-3) var(--step-4); display: grid; gap: var(--step-2); }
+.integrity { margin-top: var(--step-4); padding: var(--step-2) var(--step-4); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--radius-control); background: var(--surface); color: var(--muted); font-size: 12px; line-height: 1.6; }
 .overview-rows { display: grid; gap: 6px; }
 .overview-row { display: grid; grid-template-columns: minmax(180px, 1.2fr) minmax(0, 2fr) auto; align-items: center; gap: var(--step-3); }
 .overview-name { font-size: 13px; }
