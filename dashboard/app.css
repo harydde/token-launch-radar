@@ -1,5 +1,4 @@
-/* Token Radar's dark theme. One ink, one panel, one radar green and one amber: the whole style is
-   spacing, a hairline and a type step on top of them. */
+/* Token Radar's dark theme: one ink, one panel, one radar green and one amber. */
 :root {
   --canvas: #0a0f14;
   --surface: #101a22;
@@ -100,6 +99,9 @@ tbody tr[data-selected="true"] { background: rgba(47, 212, 138, 0.08); }
 .name { display: grid; gap: 2px; }
 .name b { font-weight: 600; }
 .sub { color: var(--muted); font-size: 12px; }
+.equation-line { font-family: var(--font-num); font-size: 11px; color: var(--muted); white-space: nowrap; }
+.rank-cell { display: grid; gap: 1px; }
+.rank-range { font-family: var(--font-num); font-size: 11px; white-space: nowrap; }
 .pos { color: var(--accent); }
 .neg { color: var(--negative); }
 .bar { width: 110px; height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
