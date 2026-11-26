@@ -189,7 +189,7 @@
     return el('section', { class: 'lede' },
       el('div', null,
         el('h1', { text: DATA.watchlist_size + ' watchlist protocols, ranked by implied value' }),
-        el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL and no token on record. The early radar adds ' + DATA.early_size + ' pre-token protocols the watchlist does not name, including ' + DATA.above_floor_size + ' above that floor. Implied value is calibrated from protocols that already trade; it is a model, not a promise.' })
+        el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL and no token on record. The early radar adds ' + DATA.early_size + ' more, including ' + DATA.above_floor_size + ' above that floor. Implied value is calibrated from protocols that already trade; it is a model, not a promise.' })
       ),
       el('div', { class: 'facts' },
         el('div', { class: 'fact' }, el('span', { text: 'Watchlist covered' }), el('b', { text: DATA.watchlist_size + ' / ' + DATA.watchlist_size })),
@@ -208,7 +208,7 @@
     var text = 'Self-check — ' + DATA.watchlist_size + '/' + DATA.watchlist_size + ' watchlist · ' + DATA.board_size + ' rows · ' +
       DATA.calibration.global_peers + ' tokenized protocols audited · held-out LOO x' + v.loo.level_factor.toFixed(2) +
       ', walk-forward x' + v.time_split.level_factor.toFixed(2) + ', 5-fold x' + v.fold5.level_factor.toFixed(2) +
-      ' · 50% conformal range covers ' + Math.round(v.conformal_coverage * 100) + '% held out · snapshot ' + DATA.as_of;
+      ' · 50% conformal range covers ' + Math.round(v.conformal_coverage * 100) + '% held out (hash split) · snapshot ' + DATA.as_of;
     return el('p', { class: 'integrity', text: text });
   }
 
@@ -325,7 +325,7 @@
     return el('div', { class: 'panel' },
       el('div', { class: 'table-wrap' },
         el('table', null,
-          el('caption', { class: 'sub', text: 'Pre-token protocols, strongest expected value first. Multiple is the effective multiple (category x size x level x token odds), so TVL x multiple x growth x maturity x breadth is the expected value. Each row shows its value as an equation and its rank range. Select a row for its model and farm plan.' }),
+          el('caption', { class: 'sub', text: 'Pre-token protocols, strongest expected value first. Multiple is the effective multiple (category x size x level x token odds). Each row shows its value as an equation and its rank range.' }),
           el('thead', null, el('tr', null,
             sortHeader('implied', 'Rank'),
             sortHeader('name', 'Protocol'),
@@ -362,7 +362,7 @@
     return el('div', { class: 'panel' },
       el('div', { class: 'table-wrap' },
         el('table', null,
-          el('caption', { class: 'sub', text: 'Token live: these protocols already trade, so their market cap is a fact, not a model. They are set aside from the pre-token ranking, and their mcap/TVL multiples calibrate it.' }),
+          el('caption', { class: 'sub', text: 'These protocols already trade, so their market cap is a fact, not a model. Their mcap/TVL multiples calibrate the ranking.' }),
           el('thead', null, el('tr', null, el('th', { scope: 'col', text: 'Status' }), el('th', { scope: 'col', text: 'Protocol' }), el('th', { scope: 'col', text: 'TVL' }), el('th', { scope: 'col', text: '7d' }), el('th', { scope: 'col', text: 'Market cap' }), el('th', { scope: 'col', text: 'Mcap / TVL' }), el('th', { scope: 'col', text: 'Token' }))),
           tbody
         )
@@ -414,18 +414,20 @@
     if (v.loo.level_factor < v.loo.cat_size_factor) levelWins.push('leave-one-out');
     var termWins = v.term_tests.filter(function (t) { return t.fitted_factor < t.level_factor; }).length;
     var heldOutNote = (wins.length > 0
-      ? 'The size factor earns its keep out of sample: it improves the ' + wins.join(', ') + '. '
-      : 'The size factor does not improve the held-out tests — it is kept only because the walk-forward and leave-one-out tests, the two that carry the most protocols, still favour it. ') +
-      'The level correction improves ' + levelWins.join(', ') + ' (' + levelWins.length + ' of 4). ' +
-      'Growth, maturity and breadth fitted on the train set improve ' + termWins + ' of 4 tests — so the board keeps them as assumptions and does not fit them.';
+      ? 'Size factor earns its keep: improves the ' + wins.join(', ') + '. '
+      : 'The size factor does not improve the held-out tests. ') +
+      'Level correction improves ' + levelWins.join(', ') + ' (' + levelWins.length + ' of 4). ' +
+      'Fitted terms improve ' + termWins + ' of 4 tests — kept as assumptions, not fitted.';
     var heldBody = el('tbody');
     [
       ['Walk-forward (older trains, newer tests)', v.time_split.n_train + ' / ' + v.time_split.n_test, 'x' + v.time_split.cat_only_factor.toFixed(2), 'x' + v.time_split.cat_size_factor.toFixed(2), 'x' + v.time_split.level_factor.toFixed(2), v.time_split.level_med_ratio.toFixed(2)],
       ['Hash split (deterministic, by slug)', v.hash_split.n_train + ' / ' + v.hash_split.n_test, 'x' + v.hash_split.cat_only_factor.toFixed(2), 'x' + v.hash_split.cat_size_factor.toFixed(2), 'x' + v.hash_split.level_factor.toFixed(2), v.hash_split.level_med_ratio.toFixed(2)],
       ['5-fold (deterministic, by slug hash)', v.fold5.n_train + ' / ' + v.fold5.n_test + ' pooled', 'x' + v.fold5.cat_only_factor.toFixed(2), 'x' + v.fold5.cat_size_factor.toFixed(2), 'x' + v.fold5.level_factor.toFixed(2), v.fold5.level_med_ratio.toFixed(2)],
       ['Leave-one-out (every protocol held out once)', v.loo.n + ' runs', 'x' + v.loo.cat_only_factor.toFixed(2), 'x' + v.loo.cat_size_factor.toFixed(2), 'x' + v.loo.level_factor.toFixed(2), '—'],
-      ['Range coverage (50% conformal, in-sample)', v.range_n + ' protocols', Math.round(v.range_coverage * 100) + '% inside', '50% nominal', '—', '—'],
-      ['Range coverage (50% conformal, split-conformal held out)', v.hash_split.n_test + ' protocols', Math.round(v.conformal_coverage * 100) + '% inside', '50% nominal', '—', '—']
+      ['Range coverage, in-sample (50% interval)', v.range_n + ' protocols', Math.round(v.range_coverage * 100) + '% inside', '60% expected', '—', '—'],
+      ['Range coverage, hash split held out', v.hash_split.n_test + ' protocols', Math.round(v.conformal_coverage * 100) + '% inside', '50% nominal', '—', '—'],
+      ['Range coverage, 5-fold held out', v.fold5.n_test + ' protocols', Math.round(v.conformal_coverage_fold5 * 100) + '% inside', '50% nominal', '—', '—'],
+      ['Range coverage, walk-forward held out', v.time_split.n_test + ' protocols', Math.round(v.conformal_coverage_time * 100) + '% inside', '50% nominal', '—', '—']
     ].forEach(function (r) {
       heldBody.appendChild(el('tr', null,
         el('td', null, el('b', { text: r[0] })),
@@ -436,44 +438,65 @@
         el('td', { class: 'num', text: r[5] })
       ));
     });
-    return el('div', { class: 'calibration-views' },
-      el('div', { class: 'panel' },
+    var catPanel = el('div', { class: 'panel' },
         el('div', { class: 'table-wrap' },
           el('table', null,
-            el('caption', { class: 'sub', text: 'Each category\'s multiple is the median mcap/TVL of its tokenized peers (ratios capped at ' + MODEL.peer_ratio_cap + 'x first), shrunk toward the global median of ' + fmtMult(DATA.calibration.global_median) + ' (' + DATA.calibration.global_peers + ' peers) with phantom peers, clamped to ' + fmtMult(MODEL.multiple_floor) + '–' + fmtMult(MODEL.multiple_cap) + '. A category with no tokenized peer takes the global median. The range column is the category\'s own conformal half-width with ' + MODEL.range_peers_min + '+ peers, else the global half-width (' + fmtMult(DATA.calibration.conformal_q50) + '). The level correction is ' + DATA.calibration.level_correction.toFixed(2) + 'x.' }),
+            el('caption', { class: 'sub', text: 'Each category\'s multiple is the median mcap/TVL of its tokenized peers (ratios capped at ' + MODEL.peer_ratio_cap + 'x), shrunk toward the global median of ' + fmtMult(DATA.calibration.global_median) + ' (' + DATA.calibration.global_peers + ' peers) with phantom peers, clamped to ' + fmtMult(MODEL.multiple_floor) + '–' + fmtMult(MODEL.multiple_cap) + '. No tokenized peer takes the global median. The range column is the category\'s own conformal half-width with ' + MODEL.range_peers_min + '+ peers, else the global half-width (' + fmtMult(DATA.calibration.conformal_q50) + '). Level correction ' + DATA.calibration.level_correction.toFixed(2) + 'x.' }),
             el('thead', null, el('tr', null, el('th', { scope: 'col', text: 'Category' }), el('th', { scope: 'col', text: 'Tokenized peers' }), el('th', { scope: 'col', text: 'Peer median mcap / TVL' }), el('th', { scope: 'col', text: '50% range half-width' }), el('th', { scope: 'col', text: 'Multiple used' }))),
             tbody
           )
         )
-      ),
-      el('div', { class: 'panel bands' },
+      );
+    var bandPanel = el('div', { class: 'panel bands' },
         el('div', { class: 'table-wrap' },
           el('table', null,
-            el('caption', { class: 'sub', text: 'The size effect, from the same tokenized protocols: the smallest quarter trades at a far higher multiple of TVL than the largest, so each protocol takes its TVL quartile band\'s median over the global median as a size factor, clamped to ' + fmtMult(MODEL.size_factor_floor) + '..' + fmtMult(MODEL.size_factor_cap) + '.' }),
+            el('caption', { class: 'sub', text: 'The size effect: the smallest quarter trades at a far higher multiple of TVL than the largest, so each protocol takes its TVL quartile band\'s median over the global median as a size factor, clamped to ' + fmtMult(MODEL.size_factor_floor) + '..' + fmtMult(MODEL.size_factor_cap) + '.' }),
             el('thead', null, el('tr', null, el('th', { scope: 'col', text: 'TVL band' }), el('th', { scope: 'col', text: 'Tokenized peers' }), el('th', { scope: 'col', text: 'Band median mcap / TVL' }), el('th', { scope: 'col', text: 'Size factor' }))),
             bandBody
           )
         )
-      ),
-      el('div', { class: 'panel bands' },
+      );
+    var oddsPanel = el('div', { class: 'panel bands' },
         el('div', { class: 'table-wrap' },
           el('table', null,
-            el('caption', { class: 'sub', text: 'Token odds, from the same snapshot: how often protocols of each age carry a token. Odds = (oldest band\'s rate, ' + (DATA.calibration.odds_eventual_rate * 100).toFixed(1) + '%, minus the band\'s rate) / (1 minus its rate), floored at ' + DATA.calibration.odds_floor.toFixed(2) + '.' }),
+            el('caption', { class: 'sub', text: 'Token odds: how often protocols of each age carry a token. Odds = (oldest band\'s rate, ' + (DATA.calibration.odds_eventual_rate * 100).toFixed(1) + '%, minus the band\'s rate) / (1 minus its rate), floored at ' + DATA.calibration.odds_floor.toFixed(2) + '.' }),
             el('thead', null, el('tr', null, el('th', { scope: 'col', text: 'Age band' }), el('th', { scope: 'col', text: 'Protocols' }), el('th', { scope: 'col', text: 'With token' }), el('th', { scope: 'col', text: 'Token rate' }), el('th', { scope: 'col', text: 'Odds used' }))),
             oddsBody
           )
         )
-      ),
-      el('div', { class: 'panel bands' },
+      );
+    var heldPanel = el('div', { class: 'panel bands' },
         el('div', { class: 'table-wrap' },
           el('table', null,
-            el('caption', { class: 'sub', text: 'Held-out tests: the fitted terms checked on protocols they never saw. Each number is the median factor the prediction is off by (lower is better, 1.00 exact). ' + heldOutNote }),
+            el('caption', { class: 'sub', text: 'Held-out tests: each number is the median factor the prediction is off by (lower is better, 1.00 exact). ' + heldOutNote }),
             el('thead', null, el('tr', null, el('th', { scope: 'col', text: 'Test' }), el('th', { scope: 'col', text: 'Train / test' }), el('th', { scope: 'col', text: 'Category alone' }), el('th', { scope: 'col', text: 'Category + size' }), el('th', { scope: 'col', text: 'With level' }), el('th', { scope: 'col', text: 'Median pred / actual' }))),
             heldBody
           )
         )
+      );
+    var acc = DATA.accounting;
+    var accBody = el('tbody');
+    [
+      ['Already trade — calibrate the board, never ranked', acc.traded_with_mcap],
+      ['Market cap zero or less — a broken record, not a price', acc.broken_mcap_zero],
+      ['Token recorded, no market cap — has a token, no price to rank by', acc.token_no_mcap],
+      ['No token at all — ranked on the board', acc.board],
+      ['No token — exchange or versioned pool', acc.excluded_cex_versioned],
+      ['No token — bridge, wrapped asset or staking receipt above the floor', acc.excluded_above_floor_product],
+      ['Total protocols in the snapshot', acc.total]
+    ].forEach(function (r) {
+      accBody.appendChild(el('tr', null, el('td', null, el('b', { text: r[0] })), el('td', { class: 'num', text: String(r[1]) })));
+    });
+    var accPanel = el('div', { class: 'panel bands' },
+      el('div', { class: 'table-wrap' },
+        el('table', null,
+          el('caption', { class: 'sub', text: 'Every protocol in the snapshot lands in exactly one bucket: ' + acc.traded_with_mcap + ' + ' + acc.broken_mcap_zero + ' + ' + acc.token_no_mcap + ' + ' + acc.pre_token + ' = ' + acc.total + '; ' + acc.board + ' + ' + acc.excluded_cex_versioned + ' + ' + acc.excluded_above_floor_product + ' = ' + acc.pre_token + '.' }),
+          el('thead', null, el('tr', null, el('th', { scope: 'col', text: 'Bucket' }), el('th', { scope: 'col', text: 'Protocols' }))),
+          accBody
+        )
       )
     );
+    return el('div', { class: 'calibration-views' }, heldPanel, accPanel, catPanel, bandPanel, oddsPanel);
   }
 
   function modelPanel() {
@@ -495,20 +518,20 @@
     var reset = el('button', { class: 'button', type: 'button', text: 'Reset the sandbox', onclick: function () { state.sandbox = { multipleScale: 1, growthWeight: MODEL.growth_weight, breadth: true, size: true, odds: true }; render(); } });
     return el('section', { class: 'panel model' },
       el('h2', { text: 'How implied value is computed' }),
-      el('p', { class: 'sub', text: 'Every row is scored by one function of the snapshot figures. No protocol name is special-cased.' }),
+      el('p', { class: 'sub', text: 'Every row is scored by one function of the snapshot figures.' }),
       el('div', { class: 'formula' },
         'expected = round( tvl_usd x category_multiple x size_factor x level (' + DATA.calibration.level_correction.toFixed(2) + ') x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ') x (' + m.maturity_floor + ' + min(age_days, ' + m.maturity_days + ') / ' + m.maturity_days + ' x ' + m.maturity_range + ') x (1 + min(chains - 1, ' + m.breadth_cap_chains + ') x ' + m.breadth_per_chain + ') x token_odds )'
       ),
-      el('p', { class: 'sub', text: 'The category multiple is calibrated: the median mcap/TVL of the tokenized protocols in the same category, shrunk toward the global median of ' + fmtMult(DATA.calibration.global_median) + ' with phantom peers and clamped to ' + fmtMult(m.multiple_floor) + '..' + fmtMult(m.multiple_cap) + '. The size factor is calibrated too: each protocol takes its TVL quartile band\'s median over the global median, clamped to ' + fmtMult(m.size_factor_floor) + '..' + fmtMult(m.size_factor_cap) + '. The level correction is calibrated as well: the median log-residual of the fit, ' + DATA.calibration.level_correction.toFixed(2) + 'x. The token odds are calibrated too: how often protocols of each age carry a token. Growth, maturity and breadth are assumptions: only the multiple, the size factor, the level correction and the odds are calibrated. Every row also carries a range — a 50% conformal interval, the expected value times exp(+/- the median |log residual|, ' + fmtMult(DATA.calibration.conformal_q50) + ' globally) — in sample it covers ' + Math.round(DATA.validation.range_coverage * 100) + '% of traded market caps, and a split-conformal check covers ' + Math.round(DATA.validation.conformal_coverage * 100) + '% held out. The fitted terms are tested held-out four ways (walk-forward x' + DATA.validation.time_split.level_factor.toFixed(2) + ', hash split x' + DATA.validation.hash_split.level_factor.toFixed(2) + ', 5-fold x' + DATA.validation.fold5.level_factor.toFixed(2) + ', leave-one-out x' + DATA.validation.loo.level_factor.toFixed(2) + ', with the level correction).' }),
+      el('p', { class: 'sub', text: 'The multiple, size factor, level correction (' + DATA.calibration.level_correction.toFixed(2) + 'x) and token odds are calibrated from the snapshot\'s own tokenized protocols; growth, maturity and breadth are assumptions. Every row also carries a range — a 50% conformal interval, the expected value times exp(+/- the 60th percentile of |log residual|, ' + fmtMult(DATA.calibration.conformal_q50) + ' globally) — in sample it covers ' + Math.round(DATA.validation.range_coverage * 100) + '% of traded market caps, and split-conformal checks cover ' + Math.round(DATA.validation.conformal_coverage * 100) + '% (hash split) and ' + Math.round(DATA.validation.conformal_coverage_fold5 * 100) + '% (5-fold) held out. The fitted terms are tested held-out four ways (walk-forward x' + DATA.validation.time_split.level_factor.toFixed(2) + ', hash split x' + DATA.validation.hash_split.level_factor.toFixed(2) + ', 5-fold x' + DATA.validation.fold5.level_factor.toFixed(2) + ', leave-one-out x' + DATA.validation.loo.level_factor.toFixed(2) + ', with the level correction).' }),
       el('div', { class: 'sandbox' },
-        el('h3', null, 'Model sandbox', sandboxActive() ? el('span', { class: 'badge', text: ' active: the board is re-ranked' }) : null),
-        el('p', { class: 'sub', text: 'Change the model and watch the board re-rank live. The submitted board keeps the defaults.' }),
+        el('h3', null, 'Model sandbox', sandboxActive() ? el('span', { class: 'badge', text: ' active' }) : null),
+        el('p', { class: 'sub', text: 'Change the model and watch the board re-rank live.' }),
         el('div', { class: 'sliders' },
           slider('sb-mult', 'Multiple scale', 0.5, 2, 0.05, sb.multipleScale, function (v) { return v.toFixed(2) + 'x'; }, function (v) { state.sandbox.multipleScale = v; }),
           slider('sb-growth', 'Growth weight', 0, 1, 0.05, sb.growthWeight, function (v) { return v.toFixed(2); }, function (v) { state.sandbox.growthWeight = v; }),
-          el('div', { class: 'slider' }, el('label', { for: 'breadth' }, el('span', { text: 'Breadth adjustment (multi-chain)' }), el('b', { text: sb.breadth ? 'on' : 'off' })), el('label', { class: 'check' }, breadthBox, 'Count extra chains')),
-          el('div', { class: 'slider' }, el('label', { for: 'size' }, el('span', { text: 'Size adjustment (TVL band)' }), el('b', { text: sb.size ? 'on' : 'off' })), el('label', { class: 'check' }, sizeBox, 'Price the protocol\'s size')),
-          el('div', { class: 'slider' }, el('label', { for: 'odds' }, el('span', { text: 'Token odds (peers by age)' }), el('b', { text: sb.odds ? 'on' : 'off' })), el('label', { class: 'check' }, oddsBox, 'Weight by the odds it lists'))
+          el('div', { class: 'slider' }, el('label', { for: 'breadth' }, el('span', { text: 'Breadth (multi-chain)' }), el('b', { text: sb.breadth ? 'on' : 'off' })), el('label', { class: 'check' }, breadthBox, 'Count extra chains')),
+          el('div', { class: 'slider' }, el('label', { for: 'size' }, el('span', { text: 'Size (TVL band)' }), el('b', { text: sb.size ? 'on' : 'off' })), el('label', { class: 'check' }, sizeBox, 'Price the protocol\'s size')),
+          el('div', { class: 'slider' }, el('label', { for: 'odds' }, el('span', { text: 'Token odds' }), el('b', { text: sb.odds ? 'on' : 'off' })), el('label', { class: 'check' }, oddsBox, 'Weight by the odds it lists'))
         ),
         reset
       )
@@ -537,25 +560,25 @@
       el('button', { class: 'close', type: 'button', 'aria-label': 'Close details', text: 'Close', onclick: function () { dialog.close(); } })
     ));
     if (!row.standalone) {
-      dialog.appendChild(el('p', { class: 'sub product-note', text: 'Note: this protocol is a bridge, staking or wrapped product — it moves or wraps a token that already trades, so a launch here would be a new token for the product itself.' }));
+      dialog.appendChild(el('p', { class: 'sub product-note', text: 'Note: this protocol is a bridge, staking or wrapped product — a launch here would be a new token for the product itself.' }));
     }
     dialog.appendChild(el('section', { class: 'detail-section' },
       el('h3', { text: 'Implied value' }),
       el('div', { class: 'equation' },
         eqRow('TVL', fmtUsd(row.tvl_usd)),
-        eqRow('Category multiple (' + (row.category || 'Other') + ')', fmtMult(row.category_multiple)),
-        eqRow('Tokenized peers in category', String(row.category_peers) + (cal && cal.peer_median !== null ? ' (peer median ' + fmtMult(cal.peer_median) + ')' : ' (global median used)')),
+        eqRow('Category multiple', fmtMult(row.category_multiple)),
+        eqRow('Tokenized peers', String(row.category_peers) + (cal && cal.peer_median !== null ? ' (peer median ' + fmtMult(cal.peer_median) + ')' : ' (global median used)')),
         eqRow('Size factor (' + row.size_band + ' band)', fmtMult(row.size_factor) + (band ? ' (band median ' + fmtMult(band.median) + ', ' + band.peers + ' peers)' : '')),
-        eqRow('Level correction (median log-residual of the fit)', fmtMult(DATA.calibration.level_correction)),
-        eqRow('Seven-day growth', fmtPct(row.change_7d)),
+        eqRow('Level correction', fmtMult(DATA.calibration.level_correction)),
+        eqRow('7-day growth', fmtPct(row.change_7d)),
         eqRow('Growth multiplier', String(row.growth_multiplier)),
-        eqRow('Age with no token on record', fmtAge(row.age_days)),
+        eqRow('Age, no token on record', fmtAge(row.age_days)),
         eqRow('Maturity multiplier', String(row.maturity_multiplier)),
         eqRow('Breadth multiplier (' + (row.chains || []).length + ' chains)', String(row.breadth_multiplier)),
         eqRow('Value if it lists', fmtUsd(row.listed_value_usd) + ' (' + fmtUsd(row.listed_low_usd) + ' – ' + fmtUsd(row.listed_high_usd) + ')'),
-        eqRow('Token odds (' + row.odds_band + ', peers of this age)', (row.odds * 100).toFixed(0) + '%'),
-        eqRow('Range (50% conformal interval)', fmtUsd(row.implied_low_usd) + ' – ' + fmtUsd(row.implied_high_usd)),
-        eqRow('Rank range at the spread', String(row.rank_low) + '–' + String(row.rank_high)),
+        eqRow('Token odds (' + row.odds_band + ')', (row.odds * 100).toFixed(0) + '%'),
+        eqRow('Range (50% interval)', fmtUsd(row.implied_low_usd) + ' – ' + fmtUsd(row.implied_high_usd)),
+        eqRow('Rank range', String(row.rank_low) + '–' + String(row.rank_high)),
         eqRow('Expected value', fmtUsd(row.implied_value_usd), true)
       ),
       el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the same function scores every protocol. The page recomputes this row as ' + fmtUsd(recomputed) + (recomputed === row.implied_value_usd ? ', the same number board.json carries.' : ' under the sandbox; the board carries ' + fmtUsd(row.implied_value_usd) + '.') + ' An estimate, not a price; the protocol records no token, which is not proof it has none.' })
@@ -598,7 +621,7 @@
         eqRow('Mcap / TVL', fmtMult(row.mcap_tvl)),
         eqRow('Seven-day growth', fmtPct(row.change_7d))
       ),
-      el('p', { class: 'sub', text: 'This protocol already trades, so its market cap is a fact, not a model: it is set aside from the pre-token ranking, and its mcap/TVL multiple helps calibrate the category multiples the board is ranked on.' })
+      el('p', { class: 'sub', text: 'This protocol already trades, so its market cap is a fact, not a model: its mcap/TVL multiple helps calibrate the board.' })
     ));
     if (typeof dialog.showModal === 'function') {
       if (!dialog.open) dialog.showModal();
@@ -608,7 +631,7 @@
   }
 
   function footer() {
-    return el('p', { class: 'foot', text: 'Method: the board ranks ' + DATA.board_size + ' protocols that record no token by an expected value calibrated from the ' + DATA.calibration.global_peers + ' tokenized protocols in the snapshot (global median mcap/TVL ' + fmtMult(DATA.calibration.global_median) + ', adjusted for size, level-corrected ' + DATA.calibration.level_correction.toFixed(2) + 'x, weighted by token odds), then for growth, age and breadth; each row also carries a 50% conformal range and its rank range. Held-out: walk-forward x' + DATA.validation.time_split.level_factor.toFixed(2) + ', hash split x' + DATA.validation.hash_split.level_factor.toFixed(2) + ', 5-fold x' + DATA.validation.fold5.level_factor.toFixed(2) + ', leave-one-out x' + DATA.validation.loo.level_factor.toFixed(2) + '. The snapshot is DefiLlama data as of ' + DATA.as_of + '; it records no token for these protocols, which is not proof none exists. Implied value is the entry\'s own model, never a price, and no protocol is predicted to issue a token.' });
+    return el('p', { class: 'foot', text: 'Method: the board ranks ' + DATA.board_size + ' pre-token protocols by an expected value calibrated from the ' + DATA.calibration.global_peers + ' tokenized protocols (global median mcap/TVL ' + fmtMult(DATA.calibration.global_median) + ', size-adjusted, level-corrected ' + DATA.calibration.level_correction.toFixed(2) + 'x, weighted by token odds), then for growth, age and breadth; each row carries a 50% conformal range and its rank range. Held-out: walk-forward x' + DATA.validation.time_split.level_factor.toFixed(2) + ', hash split x' + DATA.validation.hash_split.level_factor.toFixed(2) + ', 5-fold x' + DATA.validation.fold5.level_factor.toFixed(2) + ', leave-one-out x' + DATA.validation.loo.level_factor.toFixed(2) + '. DefiLlama data as of ' + DATA.as_of + '. Implied value is a model, never a price.' });
   }
 
   function render() {
@@ -617,11 +640,11 @@
     shell.appendChild(header());
     shell.appendChild(lede());
     if (state.tab === 'board') shell.appendChild(integrityStrip());
-    if (state.tab === 'board') shell.appendChild(overview());
     shell.appendChild(controls());
     if (state.tab === 'live') shell.appendChild(liveTable());
     else if (state.tab === 'calibration') shell.appendChild(calibrationTable());
     else shell.appendChild(boardTable());
+    if (state.tab === 'board') shell.appendChild(overview());
     if (state.tab === 'board') shell.appendChild(modelPanel());
     shell.appendChild(footer());
     app.appendChild(shell);
