@@ -18,21 +18,24 @@ every pre-token protocol with the calibrated model in `lib/model.ts`, and writes
   rankable pre-token protocol below the floor, plus the standalone pre-token
   protocols above the floor that the watchlist does not name (a bridge, a
   wrapped asset or a staking receipt is not ranked as a launch on its own).
-  Each row carries an implied value with a low and a high from the peer
-  multiples' interquartile range, and an eight-step farm plan derived from the
-  protocol's own record: category, chains, TVL, age, seven-day move and rank.
+  Each row carries an implied value with a low and a high from a 50% conformal
+  interval, and an eight-step farm plan derived from the protocol's own record:
+  category, chains, TVL, age, seven-day move and rank.
 - `data.js` — the dashboard's dataset, including the calibration table, the
   TVL size bands and each row's farm plan, so the page shows exactly the steps
   board.json carries.
 - `dashboard/` — a static page (no network): sortable/filterable board, a
   detail view for every protocol, a live-token view, the calibration table and
-  size bands, a category overview and a model sandbox that re-ranks the board
-  live. The build also writes `dashboard/method.md`, the method document with
-  the snapshot's own calibration figures.
-- `screenshots/` — the board, a protocol detail view and a filtered view.
+  size bands, a category overview, the held-out validation and the snapshot's
+  full accounting (every one of the 758 protocols in exactly one bucket), and
+  a model sandbox that re-ranks the board live. The build also writes
+  `dashboard/method.md`, the method document with the snapshot's own
+  calibration figures.
+- `screenshots/` — the board, a protocol detail view, a filtered view and the
+  calibration view.
 - `dossier.json` — built with the vendored make.fun library.
 
-## The model (radar-5)
+## The model (radar-8)
 
 Implied value is calibrated from the snapshot's own figures, never from a list
 of names:
@@ -55,17 +58,20 @@ of names:
 4. **Growth** = 1 + clamp(change_7d, −50%, +100%) x 0.5.
 5. **Maturity** = 0.6 + min(age, 1095 days) / 1095 x 0.4.
 6. **Breadth** = 1 + 0.015 x min(chains − 1, 10).
-7. **Range.** Every row also carries a low and a high: the implied value scaled
-   by the peer multiples' interquartile spread around their own median (the
-   category's own quartiles when it has eight or more peers, the global
-   quartiles otherwise).
+7. **Range.** Every row also carries a low and a high: a 50% conformal
+   interval, the implied value times exp(+/- the 60th percentile of |log
+   residual| of the tokenized peers, level-corrected — the category's own
+   half-width when it has eight or more peers, the global half-width
+   otherwise). Split-conformal coverage is 50% on the hash split and 49% on
+   5-fold, against the nominal 50%.
 
 Growth, maturity and breadth are assumptions, stated as such in the dashboard:
-only the category multiple and the size factor are calibrated from the
-snapshot. The dashboard states every constant and shows the calibration table
-with the peer count behind each multiple, plus the size bands. Farm plans name
-no product the snapshot does not carry: every step follows from the protocol's
-category, chains, TVL, age, seven-day move and rank.
+only the category multiple, the size factor, the level correction (0.94x) and
+the token odds are calibrated from the snapshot. The dashboard states every
+constant and shows the calibration table with the peer count behind each
+multiple, plus the size bands. Farm plans name no product the snapshot does not
+carry: every step follows from the protocol's category, chains, TVL, age,
+seven-day move and rank.
 
 ## Run it
 
