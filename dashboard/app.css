@@ -1,4 +1,4 @@
-/* Token Radar's dark theme: one ink, one panel, one radar green and one amber. */
+/* Token Radar's dark theme. */
 :root {
   --canvas: #0a0f14;
   --surface: #101a22;
@@ -83,6 +83,12 @@ a { color: var(--accent); }
 .tabs button { min-height: 30px; padding: 0 var(--step-3); border: 0; border-radius: 6px; background: transparent; color: var(--muted); white-space: nowrap; }
 .tabs button[aria-pressed="true"] { background: var(--accent); color: #06130c; font-weight: 600; }
 .count { margin-left: auto; color: var(--muted); font-size: 13px; align-self: center; }
+.row-tools { display: flex; gap: 4px; margin-top: 4px; }
+.mini-btn { min-height: 22px; padding: 0 7px; border: 1px solid var(--border); border-radius: 99px; background: var(--surface); color: var(--muted); font-size: 11px; white-space: nowrap; }
+.mini-btn.on { color: var(--accent); border-color: var(--accent); }
+.compare-tray { display: grid; gap: 2px; margin-bottom: var(--step-3); padding: var(--step-3) var(--step-4); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-panel); }
+[data-palette="amber"] { --accent: #e8b64c; --accent-dim: #a97f2c; }
+[data-palette="ocean"] { --accent: #5ac8e0; --accent-dim: #2b8aa3; }
 
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-panel); overflow: hidden; }
 .table-wrap { overflow-x: auto; }
